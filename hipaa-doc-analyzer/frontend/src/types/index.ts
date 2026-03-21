@@ -46,6 +46,8 @@ export interface SavedSummaryItem {
   entities_redacted: number;
   model_used: string | null;
   saved_at: string;
+  /** Outgoing shares (document_shares as owner). Omitted/0 if not loaded. */
+  share_count?: number;
 }
 
 /** Analysis shared with the current user (from GET /saved-summaries `sharedWithMe`) */
@@ -60,3 +62,8 @@ export interface SharedWithMeItem {
   model_used: string | null;
   shared_at: string;
 }
+
+/** Unified row for saved + shared history (History page, global search). */
+export type HistoryTableRow =
+  | { kind: 'saved'; data: SavedSummaryItem }
+  | { kind: 'shared'; data: SharedWithMeItem };

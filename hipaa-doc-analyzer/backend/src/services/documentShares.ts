@@ -15,6 +15,8 @@ export interface DocumentShareRow {
   document_id: string;
   owner_user_id: string;
   shared_with_user_id: string;
+  /** Sign-in email stored at share time; optional for legacy rows. */
+  shared_with_email: string | null;
   file_name: string;
   created_at: string;
 }
@@ -35,18 +37,20 @@ export async function insertDocumentShare(params: {
   documentId: string;
   ownerUserId: string;
   sharedWithUserId: string;
+  sharedWithEmail: string;
   fileName: string;
 }): Promise<DocumentShareRow> {
   const result = await pool.query(
     `INSERT INTO document_shares (
-       document_id, owner_user_id, shared_with_user_id, file_name
-     ) VALUES ($1, $2, $3, $4)
+       document_id, owner_user_id, shared_with_user_id, shared_with_email, file_name
+     ) VALUES ($1, $2, $3, $4, $5)
      RETURNING id::text, document_id::text, owner_user_id, shared_with_user_id,
-               file_name, created_at::text`,
+               shared_with_email, file_name, created_at::text`,
     [
       params.documentId,
       params.ownerUserId,
       params.sharedWithUserId,
+      params.sharedWithEmail.slice(0, 512),
       params.fileName.slice(0, 512)
     ]
   );
@@ -59,7 +63,7 @@ export async function listSharesForDocument(
 ): Promise<DocumentShareRow[]> {
   const result = await pool.query(
     `SELECT id::text, document_id::text, owner_user_id, shared_with_user_id,
-            file_name, created_at::text
+            shared_with_email, file_name, created_at::text
      FROM document_shares
      WHERE owner_user_id = $1 AND document_id = $2
      ORDER BY created_at ASC`,

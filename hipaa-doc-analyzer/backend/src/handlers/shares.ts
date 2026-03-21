@@ -6,10 +6,13 @@ import {
   listSharedWithMe,
   deleteShare
 } from '../services/documentShares';
-import { resolveEmailToSub } from '../services/cognitoUserLookup';
+import {
+  resolveEmailToSub,
+  resolveSubToEmail,
+  searchUsersByEmailPrefix
+} from '../services/cognitoUserLookup';
 import { CORS_HEADERS } from '../utils/cors';
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { isUuidString } from '../utils/validators';
 
 export const handler: APIGatewayProxyHandler = async (event) => {
   try {
@@ -30,9 +33,28 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       };
     }
 
+    if (method === 'GET' && path.includes('user-search')) {
+      const q = event.queryStringParameters?.q ?? '';
+      try {
+        const users = await searchUsersByEmailPrefix(q, { excludeSub: userId, limit: 10 });
+        return {
+          statusCode: 200,
+          headers: CORS_HEADERS,
+          body: JSON.stringify({ users })
+        };
+      } catch (e) {
+        console.error('user-search:', e);
+        return {
+          statusCode: 500,
+          headers: CORS_HEADERS,
+          body: JSON.stringify({ error: 'Could not search users.' })
+        };
+      }
+    }
+
     if (method === 'GET') {
       const documentId = event.queryStringParameters?.documentId;
-      if (!documentId || !UUID_RE.test(documentId)) {
+      if (!documentId || !isUuidString(documentId)) {
         return {
           statusCode: 400,
           headers: CORS_HEADERS,
@@ -47,7 +69,16 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           body: JSON.stringify({ error: 'Document not found' })
         };
       }
-      const shares = await listSharesForDocument(userId, documentId);
+      const rows = await listSharesForDocument(userId, documentId);
+      const shares = await Promise.all(
+        rows.map(async (s) => {
+          let displayEmail = s.shared_with_email?.trim() || null;
+          if (!displayEmail) {
+            displayEmail = (await resolveSubToEmail(s.shared_with_user_id)) ?? null;
+          }
+          return { ...s, shared_with_email: displayEmail };
+        })
+      );
       return {
         statusCode: 200,
         headers: CORS_HEADERS,
@@ -68,13 +99,14 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       }
       const o = body as Record<string, unknown>;
       const documentId = typeof o.documentId === 'string' ? o.documentId : '';
-      const email = typeof o.email === 'string' ? o.email.trim() : '';
+      const emailRaw = typeof o.email === 'string' ? o.email.trim() : '';
+      const email = emailRaw.toLowerCase();
       const fileName =
         typeof o.fileName === 'string' && o.fileName.trim()
           ? o.fileName.trim().slice(0, 512)
           : 'Document';
 
-      if (!UUID_RE.test(documentId)) {
+      if (!isUuidString(documentId)) {
         return {
           statusCode: 400,
           headers: CORS_HEADERS,
@@ -102,7 +134,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       let sub: string | null;
       try {
-        sub = await resolveEmailToSub(email);
+        sub = await resolveEmailToSub(emailRaw);
       } catch (e) {
         console.error('resolveEmailToSub:', e);
         return {
@@ -131,6 +163,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           documentId,
           ownerUserId: userId,
           sharedWithUserId: sub,
+          sharedWithEmail: email,
           fileName
         });
         return {
@@ -155,7 +188,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
     if (method === 'DELETE') {
       const shareId = event.pathParameters?.shareId;
-      if (!shareId || !UUID_RE.test(shareId)) {
+      if (!shareId || !isUuidString(shareId)) {
         return {
           statusCode: 400,
           headers: CORS_HEADERS,

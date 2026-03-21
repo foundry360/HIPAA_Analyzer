@@ -266,7 +266,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
             >
               {loading ? 'Updating…' : 'Update password'}
             </button>
@@ -358,7 +358,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             <button
               type="submit"
               disabled={loading || mfaCode.length !== 6}
-              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
             >
               {loading ? 'Verifying…' : 'Verify and continue'}
             </button>
@@ -399,7 +399,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             <button
               type="submit"
               disabled={loading || mfaCode.length !== 6}
-              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
             >
               {loading ? 'Verifying…' : 'Verify'}
             </button>
@@ -442,7 +442,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
             >
               {loading ? 'Sending…' : 'Send verification code'}
             </button>
@@ -514,7 +514,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
             >
               {loading ? 'Updating…' : 'Reset password'}
             </button>
@@ -590,7 +590,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+            className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white shadow-sm hover:bg-blue-600 disabled:opacity-50"
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>

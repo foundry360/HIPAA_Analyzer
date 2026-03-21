@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS document_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_document_shares_shared_with ON document_shares (shared_with_user_id);
 CREATE INDEX IF NOT EXISTS idx_document_shares_document ON document_shares (document_id);
+ALTER TABLE document_shares ADD COLUMN IF NOT EXISTS shared_with_email VARCHAR(512);
 CREATE TABLE IF NOT EXISTS app_config (
   key   VARCHAR(128) PRIMARY KEY,
   value TEXT NOT NULL

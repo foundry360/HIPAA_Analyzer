@@ -1,15 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import {
   createDocumentShare,
   fetchSharesForDocument,
   revokeDocumentShare,
-  type DocumentShareRow
+  searchUsersForShare,
+  type DocumentShareRow,
+  type UserSearchHit
 } from '../../api/shares';
 
 function maskSub(sub: string): string {
   if (sub.length <= 8) return sub;
   return `${sub.slice(0, 4)}…${sub.slice(-4)}`;
+}
+
+function displayShareRecipient(s: DocumentShareRow): string {
+  const e = s.shared_with_email?.trim();
+  if (e) return e;
+  return `User ${maskSub(s.shared_with_user_id)}`;
 }
 
 export function ShareSummaryDialog({
@@ -27,8 +35,12 @@ export function ShareSummaryDialog({
   const [shares, setShares] = useState<DocumentShareRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<UserSearchHit[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const comboRef = useRef<HTMLDivElement>(null);
 
   const loadShares = useCallback(async () => {
     setListLoading(true);
@@ -47,8 +59,53 @@ export function ShareSummaryDialog({
   useEffect(() => {
     if (!open) return;
     setEmail('');
+    setSuggestions([]);
+    setSuggestOpen(false);
     void loadShares();
   }, [open, documentId, loadShares]);
+
+  useEffect(() => {
+    if (!open) return;
+    const q = email.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const hits = await searchUsersForShare(q);
+          const subs = new Set(shares.map((s) => s.shared_with_user_id));
+          const emails = new Set(
+            shares.map((s) => s.shared_with_email?.trim().toLowerCase()).filter(Boolean) as string[]
+          );
+          const filtered = hits.filter(
+            (h) => !subs.has(h.sub) && !emails.has(h.email.toLowerCase())
+          );
+          setSuggestions(filtered);
+          setSuggestOpen(true);
+        } catch {
+          setSuggestions([]);
+        } finally {
+          setSearchLoading(false);
+        }
+      })();
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [email, open, shares]);
+
+  useEffect(() => {
+    if (!suggestOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!comboRef.current?.contains(e.target as Node)) {
+        setSuggestOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [suggestOpen]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +116,8 @@ export function ShareSummaryDialog({
     try {
       await createDocumentShare({ documentId, email: trimmed, fileName });
       setEmail('');
+      setSuggestions([]);
+      setSuggestOpen(false);
       await loadShares();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Share failed');
@@ -80,17 +139,23 @@ export function ShareSummaryDialog({
     }
   };
 
+  const pickSuggestion = (hit: UserSearchHit) => {
+    setEmail(hit.email);
+    setSuggestOpen(false);
+    setSuggestions([]);
+  };
+
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-dialog-title"
     >
-      <div className="flex max-h-[min(90vh,560px)] w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+      <div className="app-modal-panel flex max-h-[min(90vh,560px)] w-full max-w-md flex-col shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <h2 id="share-dialog-title" className="text-lg font-semibold text-slate-900">
             Share analysis
           </h2>
@@ -104,27 +169,61 @@ export function ShareSummaryDialog({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <p className="text-sm text-slate-600">
-            Enter the recipient&apos;s <strong>sign-in email</strong> (must be an existing user in this
-            app). They can read the summary and open the document from History.
+            Start typing a colleague&apos;s <strong>sign-in email</strong> to search, or enter the full
+            address. They can read the summary and open the document from Summaries.
           </p>
 
-          <form onSubmit={(e) => void onSubmit(e)} className="mt-4 flex gap-2">
-            <input
-              type="email"
-              autoComplete="email"
-              placeholder="colleague@hospital.org"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
+          <form onSubmit={(e) => void onSubmit(e)} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-stretch">
+            <div ref={comboRef} className="relative min-w-0 flex-1">
+              <input
+                type="text"
+                inputMode="email"
+                autoComplete="off"
+                placeholder="Search or type email…"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onFocus={() => {
+                  if (email.trim().length >= 2 && suggestions.length > 0) setSuggestOpen(true);
+                }}
+                aria-autocomplete="list"
+                aria-expanded={suggestOpen}
+                aria-controls="share-email-suggestions"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              {searchLoading && (
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-400" aria-hidden />
+                </span>
+              )}
+              {suggestOpen && suggestions.length > 0 && (
+                <ul
+                  id="share-email-suggestions"
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  {suggestions.map((hit) => (
+                    <li key={hit.sub} role="option">
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickSuggestion(hit)}
+                      >
+                        {hit.email}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <button
               type="submit"
               disabled={loading || !email.trim()}
-              className="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:self-stretch"
             >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Share'}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : 'Share'}
             </button>
           </form>
 
@@ -149,8 +248,8 @@ export function ShareSummaryDialog({
                     key={s.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm"
                   >
-                    <span className="truncate text-slate-700" title={s.shared_with_user_id}>
-                      User {maskSub(s.shared_with_user_id)}
+                    <span className="min-w-0 truncate text-slate-700" title={displayShareRecipient(s)}>
+                      {displayShareRecipient(s)}
                     </span>
                     <button
                       type="button"

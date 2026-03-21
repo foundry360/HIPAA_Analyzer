@@ -5,6 +5,13 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      colors: {
+        /** Primary actions — exact app blue */
+        brand: {
+          DEFAULT: '#3b82f6',
+          dark: '#2563eb'
+        }
+      },
       fontFamily: {
         sans: ['DM Sans', 'system-ui', 'sans-serif']
       }

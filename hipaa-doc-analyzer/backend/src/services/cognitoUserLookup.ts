@@ -68,3 +68,62 @@ export async function resolveEmailToSub(email: string): Promise<string | null> {
 
   return subFromAttributes(users[0]!.Attributes) ?? null;
 }
+
+/**
+ * Resolve primary email for a Cognito `sub` (for display on share rows).
+ */
+export async function resolveSubToEmail(sub: string): Promise<string | null> {
+  const poolId = process.env.COGNITO_USER_POOL_ID;
+  if (!poolId?.trim() || !sub?.trim()) return null;
+  const safe = sub.trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  try {
+    const res = await client.send(
+      new ListUsersCommand({
+        UserPoolId: poolId,
+        Filter: `sub = "${safe}"`,
+        Limit: 2
+      })
+    );
+    const users = res.Users ?? [];
+    if (users.length !== 1) return null;
+    return users[0]!.Attributes?.find((a) => a.Name === 'email')?.Value ?? null;
+  } catch (e) {
+    console.error('resolveSubToEmail:', e);
+    return null;
+  }
+}
+
+export type UserSearchHit = { email: string; sub: string };
+
+/**
+ * Prefix search on sign-in email (Cognito `email ^= "prefix"`). Min 2 characters.
+ */
+export async function searchUsersByEmailPrefix(
+  prefix: string,
+  options?: { limit?: number; excludeSub?: string }
+): Promise<UserSearchHit[]> {
+  const poolId = process.env.COGNITO_USER_POOL_ID;
+  if (!poolId?.trim()) {
+    throw new Error('COGNITO_USER_POOL_ID is not configured');
+  }
+  const p = prefix.trim().toLowerCase();
+  if (p.length < 2) return [];
+  const safe = p.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const res = await client.send(
+    new ListUsersCommand({
+      UserPoolId: poolId,
+      Filter: `email ^= "${safe}"`,
+      Limit: Math.min(25, Math.max(1, options?.limit ?? 10))
+    })
+  );
+  const out: UserSearchHit[] = [];
+  const exclude = options?.excludeSub;
+  for (const u of res.Users ?? []) {
+    const sub = subFromAttributes(u.Attributes);
+    const email = u.Attributes?.find((a) => a.Name === 'email')?.Value;
+    if (!sub || !email) continue;
+    if (exclude && sub === exclude) continue;
+    out.push({ email, sub });
+  }
+  return out;
+}

@@ -428,6 +428,17 @@ export class MainStack extends cdk.Stack {
       lambdaIntegration(savedSummariesFn),
       authOptions
     );
+    const savedSummariesByDocumentResource = savedSummariesResource.addResource('{documentId}');
+    savedSummariesByDocumentResource.addMethod(
+      'PATCH',
+      lambdaIntegration(savedSummariesFn),
+      authOptions
+    );
+    savedSummariesByDocumentResource.addMethod(
+      'DELETE',
+      lambdaIntegration(savedSummariesFn),
+      authOptions
+    );
 
     const documentResource = api.root.addResource('document');
     const documentIdForViewResource = documentResource.addResource('{documentId}');
@@ -441,6 +452,7 @@ export class MainStack extends cdk.Stack {
     const sharesResource = api.root.addResource('shares');
     sharesResource.addMethod('POST', lambdaIntegration(sharesFn), authOptions);
     sharesResource.addMethod('GET', lambdaIntegration(sharesFn), authOptions);
+    sharesResource.addResource('user-search').addMethod('GET', lambdaIntegration(sharesFn), authOptions);
     sharesResource.addResource('incoming').addMethod('GET', lambdaIntegration(sharesFn), authOptions);
     sharesResource.addResource('{shareId}').addMethod('DELETE', lambdaIntegration(sharesFn), authOptions);
 

@@ -126,9 +126,11 @@ export function DocumentUploader() {
           }`}
         >
           <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col items-center py-2">
-            <h2 className="mb-1 shrink-0 text-center text-2xl font-semibold text-slate-800">Analyze a document</h2>
-            <p className="mb-6 shrink-0 text-center text-sm text-slate-500">
-              PHI is automatically redacted before AI processing. All activity is audit-logged.
+            <h2 className="mb-1 shrink-0 text-center text-2xl font-semibold text-slate-800">
+              Summarize a Clinical Document
+            </h2>
+            <p className="mb-6 max-w-2xl shrink-0 text-center text-sm text-slate-500">
+              Choose an analysis type, upload your clinical document, then review the clinical summary.
             </p>
 
             <div className="w-full shrink-0">
@@ -151,6 +153,10 @@ export function DocumentUploader() {
                 )}
               </div>
             </div>
+
+            <p className="mt-4 max-w-2xl shrink-0 text-center text-xs text-slate-500">
+              PHI is automatically redacted before AI processing. All activity is audit-logged.
+            </p>
 
             {(isUploading || isAnalyzing) && (
               <div className="mt-6 flex shrink-0 items-center justify-center gap-3 rounded-lg bg-blue-50 p-4">

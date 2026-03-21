@@ -51,7 +51,7 @@ export async function saveSummaryToHistory(result: AnalyzeResponse, fileName: st
     body: JSON.stringify({
       documentId: result.documentId,
       fileName: fileName || 'Document',
-      summary: result.summary,
+      summary: typeof result.summary === 'string' ? result.summary : '',
       analysisType: result.analysisType,
       phiDetected: result.phiDetected,
       entitiesRedacted: result.entitiesRedacted,
@@ -61,6 +61,51 @@ export async function saveSummaryToHistory(result: AnalyzeResponse, fileName: st
   if (!res.ok) {
     const t = await res.text();
     let msg = 'Could not save summary';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+}
+
+export async function renameSavedSummary(documentId: string, fileName: string): Promise<void> {
+  const trimmed = fileName.trim();
+  if (!trimmed) throw new Error('Name is required');
+  /** POST (not PATCH) to same URL as save — same CORS preflight; avoids "Failed to fetch" when sub-routes aren’t deployed. */
+  const res = await fetch(`${apiBase()}/saved-summaries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders())
+    },
+    body: JSON.stringify({ op: 'rename', documentId, fileName: trimmed })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = 'Could not rename';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+}
+
+export async function deleteSavedSummary(documentId: string): Promise<void> {
+  const res = await fetch(`${apiBase()}/saved-summaries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders())
+    },
+    body: JSON.stringify({ op: 'delete', documentId })
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = 'Could not delete';
     try {
       if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
     } catch {

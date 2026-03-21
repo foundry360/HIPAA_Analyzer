@@ -16,7 +16,7 @@ const LABELS: Record<AnalysisType, string> = {
   CHIEF_COMPLAINT: 'Chief complaint'
 };
 
-/** Short labels for tables and history */
+/** Short labels for tables and Summaries */
 export const ANALYSIS_TYPE_LABELS: Record<AnalysisType, string> = LABELS;
 
 const DESCRIPTIONS: Record<AnalysisType, string> = {

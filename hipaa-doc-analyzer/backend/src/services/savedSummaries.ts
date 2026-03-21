@@ -1,6 +1,11 @@
 import { Pool } from 'pg';
 import type { AnalysisType } from '../types';
 
+/** Strip NULs (break some PG clients) and trim for display name. */
+export function sanitizeSavedFileName(name: string): string {
+  return name.replace(/\0/g, '').trim();
+}
+
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: parseInt(process.env.DB_PORT || '5432'),
@@ -21,6 +26,8 @@ export interface SavedSummaryRow {
   entities_redacted: number;
   model_used: string | null;
   saved_at: string;
+  /** Rows in document_shares where this user is owner (outgoing shares). */
+  share_count: number;
 }
 
 export async function upsertSavedSummary(params: {
@@ -49,7 +56,7 @@ export async function upsertSavedSummary(params: {
     [
       params.userId,
       params.documentId,
-      params.fileName.slice(0, 512),
+      sanitizeSavedFileName(params.fileName).slice(0, 512),
       params.analysisType,
       params.summary,
       params.phiDetected,
@@ -61,13 +68,51 @@ export async function upsertSavedSummary(params: {
 
 export async function listSavedSummaries(userId: string): Promise<SavedSummaryRow[]> {
   const result = await pool.query(
-    `SELECT id::text, document_id::text, file_name, analysis_type, summary,
-            phi_detected, entities_redacted, model_used,
-            saved_at::text
-     FROM saved_summaries
-     WHERE user_id = $1
-     ORDER BY saved_at DESC`,
+    `SELECT ss.id::text,
+            ss.document_id::text,
+            ss.file_name,
+            ss.analysis_type,
+            ss.summary,
+            ss.phi_detected,
+            ss.entities_redacted,
+            ss.model_used,
+            ss.saved_at::text,
+            COALESCE(
+              (SELECT COUNT(*)::int
+               FROM document_shares ds
+               WHERE ds.document_id = ss.document_id
+                 AND ds.owner_user_id = ss.user_id),
+              0
+            ) AS share_count
+     FROM saved_summaries ss
+     WHERE ss.user_id = $1
+     ORDER BY ss.saved_at DESC`,
     [userId]
   );
-  return result.rows as SavedSummaryRow[];
+  return result.rows.map((r) => ({
+    ...r,
+    share_count: Number(r.share_count) || 0
+  })) as SavedSummaryRow[];
+}
+
+export async function renameSavedSummaryFileName(params: {
+  userId: string;
+  documentId: string;
+  fileName: string;
+}): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE saved_summaries
+     SET file_name = $3
+     WHERE user_id = $1 AND document_id = $2::uuid`,
+    [params.userId, params.documentId, sanitizeSavedFileName(params.fileName).slice(0, 512)]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function deleteSavedSummary(userId: string, documentId: string): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM saved_summaries WHERE user_id = $1 AND document_id = $2::uuid`,
+    [userId, documentId]
+  );
+  return (result.rowCount ?? 0) > 0;
 }

@@ -1,20 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, User, X } from 'lucide-react';
 import { getDocumentViewUrl } from '../api/documentViewUrl';
-import { fetchSavedSummaries } from '../api/savedSummaries';
+import {
+  deleteSavedSummary,
+  fetchSavedSummaries,
+  renameSavedSummary
+} from '../api/savedSummaries';
+import { HistoryRowActions } from '../components/History/HistoryRowActions';
 import { ClinicalSummaryMarkdown } from '../components/Upload/ClinicalSummaryMarkdown';
+import { ShareSummaryDialog } from '../components/Upload/ShareSummaryDialog';
 import { ANALYSIS_TYPE_LABELS } from '../components/Upload/AnalysisTypeSelector';
-import type { AnalysisType, SavedSummaryItem, SharedWithMeItem } from '../types';
-
-type HistoryTableRow =
-  | { kind: 'saved'; data: SavedSummaryItem }
-  | { kind: 'shared'; data: SharedWithMeItem };
+import type { AnalysisType, HistoryTableRow, SavedSummaryItem, SharedWithMeItem } from '../types';
+import { downloadSummaryPdf } from '../utils/downloadSummaryPdf';
+import { mergeHistoryRows, parseOpenKey } from '../utils/historyRows';
 
 function analysisTypeLabel(t: string): string {
   return ANALYSIS_TYPE_LABELS[t as AnalysisType] ?? t;
 }
 
 const PAGE_SIZES = [25, 50, 75, 100] as const;
+
+type SummaryFilterTab = 'all' | 'mine' | 'shared-with-me';
+
+const SUMMARY_FILTER_TABS: { id: SummaryFilterTab; label: string }[] = [
+  { id: 'all', label: 'All Summaries' },
+  { id: 'mine', label: 'My Summaries' },
+  { id: 'shared-with-me', label: 'Shared With Me' }
+];
 
 function formatSavedAt(iso: string): string {
   try {
@@ -27,30 +40,50 @@ function formatSavedAt(iso: string): string {
   }
 }
 
+/** Incoming share to you, or your summary that has been shared with at least one other user. */
+function showSharedUserIcon(row: HistoryTableRow): boolean {
+  if (row.kind === 'shared') return true;
+  return (row.data.share_count ?? 0) > 0;
+}
+
+function sharedUserIconTitle(row: HistoryTableRow): string {
+  if (row.kind === 'shared') return 'Shared with you';
+  return 'This summary has been shared';
+}
+
 export function HistoryPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<SavedSummaryItem[]>([]);
   const [sharedWithMe, setSharedWithMe] = useState<SharedWithMeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<HistoryTableRow | null>(null);
+  const [pdfDownloadBusy, setPdfDownloadBusy] = useState(false);
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState(1);
   const [openingDocId, setOpeningDocId] = useState<string | null>(null);
   const [docOpenError, setDocOpenError] = useState<string | null>(null);
+  const [actionsMenuKey, setActionsMenuKey] = useState<string | null>(null);
+  const [renameRow, setRenameRow] = useState<HistoryTableRow | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [deleteRow, setDeleteRow] = useState<HistoryTableRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [shareRow, setShareRow] = useState<HistoryTableRow | null>(null);
+  const [filterTab, setFilterTab] = useState<SummaryFilterTab>('all');
 
-  const mergedRows = useMemo((): HistoryTableRow[] => {
-    const saved: HistoryTableRow[] = items.map((data) => ({ kind: 'saved', data }));
-    const shared: HistoryTableRow[] = sharedWithMe.map((data) => ({ kind: 'shared', data }));
-    return [...saved, ...shared].sort((a, b) => {
-      const ta = new Date(
-        a.kind === 'saved' ? a.data.saved_at : a.data.shared_at
-      ).getTime();
-      const tb = new Date(
-        b.kind === 'saved' ? b.data.saved_at : b.data.shared_at
-      ).getTime();
-      return tb - ta;
-    });
-  }, [items, sharedWithMe]);
+  const mergedRows = useMemo(
+    (): HistoryTableRow[] => mergeHistoryRows(items, sharedWithMe),
+    [items, sharedWithMe]
+  );
+
+  const filteredRows = useMemo((): HistoryTableRow[] => {
+    if (filterTab === 'all') return mergedRows;
+    if (filterTab === 'mine') return mergedRows.filter((r) => r.kind === 'saved');
+    return mergedRows.filter((r) => r.kind === 'shared');
+  }, [mergedRows, filterTab]);
 
   const handleOpenDocument = useCallback(async (row: HistoryTableRow) => {
     setDocOpenError(null);
@@ -67,19 +100,23 @@ export function HistoryPage() {
   }, []);
 
   const { paginatedItems, totalPages, startIdx, endIdx, effectivePage } = useMemo(() => {
-    const total = mergedRows.length;
+    const total = filteredRows.length;
     const pages = Math.ceil(total / pageSize) || 1;
     const page = Math.min(Math.max(1, currentPage), pages);
     const start = (page - 1) * pageSize;
     const end = Math.min(start + pageSize, total);
     return {
-      paginatedItems: mergedRows.slice(start, end),
+      paginatedItems: filteredRows.slice(start, end),
       totalPages: pages,
       startIdx: total > 0 ? start + 1 : 0,
       endIdx: end,
       effectivePage: page
     };
-  }, [mergedRows, pageSize, currentPage]);
+  }, [filteredRows, pageSize, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterTab]);
 
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages || 1));
@@ -99,7 +136,7 @@ export function HistoryPage() {
       setItems(saved);
       setSharedWithMe(shared);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load history');
+      setError(e instanceof Error ? e.message : 'Failed to load summaries');
       setItems([]);
       setSharedWithMe([]);
     } finally {
@@ -111,12 +148,105 @@ export function HistoryPage() {
     load();
   }, [load]);
 
+  const openParam = searchParams.get('open');
+
+  useEffect(() => {
+    if (!openParam || mergedRows.length === 0) return;
+    let decoded = openParam;
+    try {
+      decoded = decodeURIComponent(openParam);
+    } catch {
+      /* use openParam */
+    }
+    const parsed = parseOpenKey(decoded);
+    if (!parsed) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('open');
+          return next;
+        },
+        { replace: true }
+      );
+      return;
+    }
+    const row = mergedRows.find((r) =>
+      parsed.kind === 'saved'
+        ? r.kind === 'saved' && r.data.id === parsed.id
+        : r.kind === 'shared' && r.data.share_id === parsed.id
+    );
+    if (row) {
+      setSelected(row);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('open');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [openParam, mergedRows, setSearchParams]);
+
+  const applyRenamedFile = useCallback((documentId: string, fileName: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.document_id === documentId ? { ...it, file_name: fileName } : it))
+    );
+    setSelected((prev) =>
+      prev && prev.kind === 'saved' && prev.data.document_id === documentId
+        ? { ...prev, data: { ...prev.data, file_name: fileName } }
+        : prev
+    );
+  }, []);
+
+  const removeSavedFromList = useCallback((documentId: string) => {
+    setItems((prev) => prev.filter((it) => it.document_id !== documentId));
+    setSelected((prev) =>
+      prev && prev.kind === 'saved' && prev.data.document_id === documentId ? null : prev
+    );
+  }, []);
+
+  const submitRename = useCallback(async () => {
+    if (!renameRow || renameRow.kind !== 'saved') return;
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameError('Enter a document name');
+      return;
+    }
+    setRenameError(null);
+    setRenameBusy(true);
+    try {
+      await renameSavedSummary(renameRow.data.document_id, name);
+      applyRenamedFile(renameRow.data.document_id, name);
+      setRenameRow(null);
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : 'Rename failed');
+    } finally {
+      setRenameBusy(false);
+    }
+  }, [renameRow, renameValue, applyRenamedFile]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteRow || deleteRow.kind !== 'saved') return;
+    setDeleteError(null);
+    setDeleteBusy(true);
+    try {
+      await deleteSavedSummary(deleteRow.data.document_id);
+      removeSavedFromList(deleteRow.data.document_id);
+      setDeleteRow(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deleteRow, removeSavedFromList]);
+
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-screen-2xl flex-1 flex-col overflow-hidden px-4 py-6 sm:px-8">
       <div className="shrink-0">
-        <h2 className="text-2xl font-semibold text-slate-800">Analysis History</h2>
+        <h2 className="text-2xl font-semibold text-slate-800">Summaries</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Your saved summaries and analyses others shared with you (by email) appear here.
+          Your saved summaries and analyses others shared with you appear here.
         </p>
         {docOpenError && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
@@ -142,6 +272,37 @@ export function HistoryPage() {
         )}
         {!loading && !error && mergedRows.length > 0 && (
           <>
+          <nav
+            className="mb-4 flex flex-wrap gap-6 sm:gap-10"
+            aria-label="Filter summaries"
+          >
+            {SUMMARY_FILTER_TABS.map(({ id, label }) => {
+              const selected = filterTab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setFilterTab(id)}
+                  className={[
+                    '-mb-px border-b-[3px] border-solid pb-2 text-sm font-medium transition-colors',
+                    selected
+                      ? 'border-b-blue-500 text-slate-900'
+                      : 'border-b-transparent text-slate-500 hover:text-slate-800'
+                  ].join(' ')}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+
+          {filteredRows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white p-10 text-center text-sm text-slate-400">
+              No summaries in this view.
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
             <table className="w-full min-w-[960px] text-left text-sm">
               <thead>
@@ -166,17 +327,19 @@ export function HistoryPage() {
                     className="odd:bg-white even:bg-slate-50/80 hover:bg-slate-100/90"
                   >
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                      <div className="flex flex-col gap-0.5">
-                        <span>{formatSavedAt(dateStr)}</span>
-                        {row.kind === 'shared' && (
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
-                            Shared with you
-                          </span>
-                        )}
-                      </div>
+                      {formatSavedAt(dateStr)}
                     </td>
                     <td className="max-w-xl min-w-[12rem] px-4 py-3">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        {showSharedUserIcon(row) && (
+                          <span
+                            className="inline-flex shrink-0 text-indigo-600"
+                            title={sharedUserIconTitle(row)}
+                            aria-label={sharedUserIconTitle(row)}
+                          >
+                            <User className="h-4 w-4" strokeWidth={2} aria-hidden />
+                          </span>
+                        )}
                         <span className="min-w-0 truncate font-medium text-slate-900" title={d.file_name}>
                           {d.file_name}
                         </span>
@@ -203,16 +366,31 @@ export function HistoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
+                      <HistoryRowActions
+                        rowKey={rowKey}
+                        isOpen={actionsMenuKey === rowKey}
+                        onOpenChange={(open) => setActionsMenuKey(open ? rowKey : null)}
+                        canMutate={row.kind === 'saved'}
+                        onView={() => {
                           setDocOpenError(null);
                           setSelected(row);
                         }}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
-                      >
-                        Summary
-                      </button>
+                        onShare={() => {
+                          if (row.kind !== 'saved') return;
+                          setShareRow(row);
+                        }}
+                        onRename={() => {
+                          if (row.kind !== 'saved') return;
+                          setRenameError(null);
+                          setRenameValue(row.data.file_name);
+                          setRenameRow(row);
+                        }}
+                        onDelete={() => {
+                          if (row.kind !== 'saved') return;
+                          setDeleteError(null);
+                          setDeleteRow(row);
+                        }}
+                      />
                     </td>
                   </tr>
                   );
@@ -220,28 +398,28 @@ export function HistoryPage() {
               </tbody>
             </table>
           </div>
+          )}
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-4">
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-slate-600">
-                Showing {startIdx}–{endIdx} of {mergedRows.length}
-              </span>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                Rows per page
-                <select
-                  value={pageSize}
-                  onChange={handlePageSizeChange}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  aria-label="Rows per page"
-                >
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+          {filteredRows.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4 sm:gap-4">
+            <span className="text-sm tabular-nums text-slate-600">
+              Showing {startIdx}–{endIdx} of {filteredRows.length}
+            </span>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              Rows per page
+              <select
+                value={pageSize}
+                onChange={handlePageSizeChange}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                aria-label="Rows per page"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -266,13 +444,129 @@ export function HistoryPage() {
               </button>
             </div>
           </div>
+          )}
         </>
         )}
       </div>
 
+      {shareRow && shareRow.kind === 'saved' && (
+        <ShareSummaryDialog
+          open
+          onClose={() => setShareRow(null)}
+          documentId={shareRow.data.document_id}
+          fileName={shareRow.data.file_name}
+        />
+      )}
+
+      {renameRow && renameRow.kind === 'saved' && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-dialog-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 z-0 bg-slate-900/40"
+            aria-label="Close"
+            onClick={() => !renameBusy && setRenameRow(null)}
+          />
+          <div className="app-modal-panel relative z-10 w-full max-w-md p-6 shadow-xl">
+            <h3 id="rename-dialog-title" className="text-lg font-semibold text-slate-900">
+              Rename document
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              This name appears in your summaries and when opening PDFs.
+            </p>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="mt-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              aria-label="Document name"
+              disabled={renameBusy}
+              maxLength={512}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submitRename();
+              }}
+            />
+            {renameError && (
+              <p className="mt-2 text-sm text-red-600">{renameError}</p>
+            )}
+            <div className="mt-6 flex shrink-0 flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={renameBusy}
+                onClick={() => setRenameRow(null)}
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={renameBusy}
+                onClick={() => void submitRename()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#3b82f6] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] disabled:opacity-50"
+              >
+                {renameBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteRow && deleteRow.kind === 'saved' && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40"
+            aria-label="Close"
+            onClick={() => !deleteBusy && setDeleteRow(null)}
+          />
+          <div className="app-modal-panel relative w-full max-w-md p-6 shadow-xl">
+            <h3 id="delete-dialog-title" className="text-lg font-semibold text-slate-900">
+              Delete saved analysis?
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Remove <strong className="font-medium text-slate-900">{deleteRow.data.file_name}</strong>{' '}
+              from your summaries. This does not delete the original document in storage.
+            </p>
+            {deleteError && (
+              <p className="mt-3 text-sm text-red-600">{deleteError}</p>
+            )}
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => setDeleteRow(null)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => void confirmDelete()}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selected && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-6"
           role="dialog"
           aria-modal="true"
           aria-labelledby="summary-dialog-title"
@@ -283,11 +577,23 @@ export function HistoryPage() {
             aria-label="Close"
             onClick={() => setSelected(null)}
           />
-          <div className="relative max-h-[min(90vh,720px)] w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div className="app-modal-panel relative flex max-h-[min(92vh,920px)] w-full max-w-5xl flex-col overflow-hidden shadow-xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
               <div className="min-w-0">
-                <h3 id="summary-dialog-title" className="truncate font-semibold text-slate-900">
-                  {selected.data.file_name}
+                <h3
+                  id="summary-dialog-title"
+                  className="flex min-w-0 items-center gap-2 truncate font-semibold text-slate-900"
+                >
+                  {showSharedUserIcon(selected) && (
+                    <span
+                      className="inline-flex shrink-0 text-indigo-600"
+                      title={sharedUserIconTitle(selected)}
+                      aria-hidden
+                    >
+                      <User className="h-5 w-5 shrink-0" strokeWidth={2} />
+                    </span>
+                  )}
+                  <span className="min-w-0 truncate">{selected.data.file_name}</span>
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
                   {analysisTypeLabel(selected.data.analysis_type)} ·{' '}
@@ -298,6 +604,9 @@ export function HistoryPage() {
                   )}
                   {selected.kind === 'shared' && (
                     <span className="ml-1.5 text-indigo-600">· Shared with you</span>
+                  )}
+                  {selected.kind === 'saved' && (selected.data.share_count ?? 0) > 0 && (
+                    <span className="ml-1.5 text-indigo-600">· Shared with others</span>
                   )}
                 </p>
               </div>
@@ -310,8 +619,32 @@ export function HistoryPage() {
                 <X className="h-5 w-5" strokeWidth={2} />
               </button>
             </div>
-            <div className="max-h-[min(70vh,560px)] overflow-y-auto px-5 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
               <ClinicalSummaryMarkdown>{selected.data.summary}</ClinicalSummaryMarkdown>
+            </div>
+            <div className="flex shrink-0 justify-end border-t border-slate-100 bg-slate-50/80 px-6 py-4">
+              <button
+                type="button"
+                disabled={pdfDownloadBusy}
+                onClick={() => {
+                  void (async () => {
+                    setPdfDownloadBusy(true);
+                    try {
+                      await downloadSummaryPdf(selected.data.summary, selected.data.file_name);
+                    } finally {
+                      setPdfDownloadBusy(false);
+                    }
+                  })();
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#3b82f6] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] disabled:cursor-wait disabled:opacity-80"
+              >
+                {pdfDownloadBusy ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={2} aria-hidden />
+                ) : (
+                  <Download className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                )}
+                {pdfDownloadBusy ? 'Preparing PDF…' : 'Download PDF'}
+              </button>
             </div>
           </div>
         </div>

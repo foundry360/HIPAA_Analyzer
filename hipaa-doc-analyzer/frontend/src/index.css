@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fixed overlay dialogs: consistent gray frame */
+@layer components {
+  .app-modal-panel {
+    @apply rounded-xl border border-slate-500 bg-white;
+  }
+}
+
 html {
   color-scheme: light;
   height: 100%;

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS document_shares (
   document_id         UUID NOT NULL,
   owner_user_id       VARCHAR(255) NOT NULL,
   shared_with_user_id VARCHAR(255) NOT NULL,
+  shared_with_email   VARCHAR(512),
   file_name           VARCHAR(512) DEFAULT 'Document',
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (document_id, shared_with_user_id)

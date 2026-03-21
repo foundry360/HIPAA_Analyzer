@@ -39,12 +39,12 @@ export function SummaryCardActions({
 
   const saveTitle =
     saveStatus === 'saved'
-      ? 'Saved to history'
+      ? 'Saved to Summaries'
       : saveStatus === 'saving'
         ? 'Saving…'
         : saveStatus === 'error'
           ? saveError ?? 'Save failed — tap to retry'
-          : 'Save summary to history';
+          : 'Save summary to Summaries';
 
   const canShare =
     Boolean(result.summary) &&

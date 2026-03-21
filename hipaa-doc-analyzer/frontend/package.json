@@ -11,7 +11,11 @@
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "aws-amplify": "^6.10.0",
+    "dompurify": "^3.3.3",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
+    "marked": "^17.0.5",
     "pdfjs-dist": "5.4.296",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
@@ -23,6 +27,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

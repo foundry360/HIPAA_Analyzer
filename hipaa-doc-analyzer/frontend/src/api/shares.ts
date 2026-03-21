@@ -18,8 +18,35 @@ export interface DocumentShareRow {
   document_id: string;
   owner_user_id: string;
   shared_with_user_id: string;
+  /** Sign-in email when available (from DB or Cognito). */
+  shared_with_email?: string | null;
   file_name: string;
   created_at: string;
+}
+
+export type UserSearchHit = { email: string; sub: string };
+
+export async function searchUsersForShare(query: string): Promise<UserSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const res = await fetch(
+    `${apiBase()}/shares/user-search?q=${encodeURIComponent(q)}`,
+    {
+      headers: { ...(await authHeaders()) }
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = 'Could not search users';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+  const data = (await res.json()) as { users?: UserSearchHit[] };
+  return data.users ?? [];
 }
 
 export async function fetchSharesForDocument(documentId: string): Promise<DocumentShareRow[]> {
