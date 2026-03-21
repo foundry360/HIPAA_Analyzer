@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Env & secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Build & CDK
+dist/
+cdk.out/
+*.tsbuildinfo
+
+# OS & IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs & local invoke output
+*.log
+npm-debug.log*
+**/out.json

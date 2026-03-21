@@ -1,0 +1,19 @@
+{
+  "name": "hipaa-doc-analyzer-infrastructure",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.100.0",
+    "constructs": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.27.4",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  }
+}
