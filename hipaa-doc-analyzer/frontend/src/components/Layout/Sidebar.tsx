@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { FileSearch, History as HistoryIcon, PanelLeft, PanelRight, type LucideIcon } from 'lucide-react';
+import {
+  FileSearch,
+  History as HistoryIcon,
+  PanelLeft,
+  PanelRight,
+  Users,
+  type LucideIcon
+} from 'lucide-react';
+import { useAdmin } from '../../context/AdminContext';
 
 const STORAGE_KEY = 'hipaa-sidebar-collapsed';
 
-const nav: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
+const baseNav: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
   { to: '/', label: 'Analyze', icon: FileSearch, end: true },
   { to: '/history', label: 'History', icon: HistoryIcon }
 ];
 
 export function Sidebar() {
+  const { admin } = useAdmin();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === '1';
@@ -27,6 +36,14 @@ export function Sidebar() {
   }, [collapsed]);
 
   const toggle = useCallback(() => setCollapsed((c) => !c), []);
+
+  const nav = useMemo(() => {
+    const items = [...baseNav];
+    if (admin) {
+      items.push({ to: '/settings/users', label: 'Users', icon: Users });
+    }
+    return items;
+  }, [admin]);
 
   return (
     <aside

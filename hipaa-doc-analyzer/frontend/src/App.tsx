@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/Layout/ProtectedRoute';
 import { LoginForm } from './components/Auth/LoginForm';
 import { DocumentUploader } from './components/Upload/DocumentUploader';
 import { HistoryPage } from './pages/HistoryPage';
+import { ManageUsersPage } from './pages/ManageUsersPage';
 
 export default function App() {
   const navigate = useNavigate();
@@ -14,7 +15,7 @@ export default function App() {
       <Route
         path="/login"
         element={
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex min-h-screen min-h-[100dvh] flex-1 flex-col">
             <LoginForm onSuccess={() => navigate('/', { replace: true })} />
           </div>
         }
@@ -29,6 +30,7 @@ export default function App() {
       >
         <Route index element={<DocumentUploader />} />
         <Route path="history" element={<HistoryPage />} />
+        <Route path="settings/users" element={<ManageUsersPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

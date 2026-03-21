@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS document_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_document_shares_shared_with ON document_shares (shared_with_user_id);
 CREATE INDEX IF NOT EXISTS idx_document_shares_document ON document_shares (document_id);
+CREATE TABLE IF NOT EXISTS app_config (
+  key   VARCHAR(128) PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_grants (
+  cognito_sub     VARCHAR(128) PRIMARY KEY,
+  granted_by_sub  VARCHAR(128),
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_grants_created ON admin_grants (created_at);
 `;
 
 export const handler = async (): Promise<{ statusCode: number; body: string }> => {

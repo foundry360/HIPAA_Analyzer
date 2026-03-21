@@ -183,7 +183,19 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   } catch (error) {
-    console.error('shares handler error:', error);
+    const err = error as Error & { code?: string };
+    console.error('shares handler error:', err?.message ?? error, err?.stack);
+    const pgCode = err?.code;
+    if (pgCode === '42P01') {
+      return {
+        statusCode: 503,
+        headers: CORS_HEADERS,
+        body: JSON.stringify({
+          error:
+            'Sharing is unavailable: database table missing. Run DB setup / migration for document_shares.'
+        })
+      };
+    }
     return {
       statusCode: 500,
       headers: CORS_HEADERS,

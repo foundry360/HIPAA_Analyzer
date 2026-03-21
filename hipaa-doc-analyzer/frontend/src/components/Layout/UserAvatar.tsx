@@ -37,7 +37,12 @@ function initialsFromAttributes(attrs: Attrs): string {
   return '?';
 }
 
-export function UserAvatar() {
+type UserAvatarProps = {
+  /** Initials only, no name/email (rarely needed). */
+  compact?: boolean;
+};
+
+export function UserAvatar({ compact = false }: UserAvatarProps) {
   const [label, setLabel] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -68,18 +73,7 @@ export function UserAvatar() {
     };
   }, []);
 
-  return (
-    <div className="flex items-center gap-3">
-      {(name || email) && (
-        <div className="flex flex-col">
-          {name && (
-            <span className="text-sm font-medium text-slate-800 leading-tight">{name}</span>
-          )}
-          {email && (
-            <span className="text-xs text-slate-500 leading-tight">{email}</span>
-          )}
-        </div>
-      )}
+  const circle = (
       <div
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold uppercase tracking-tight text-blue-700 ring-2 ring-white ring-offset-0"
         title={name || email || 'Signed-in user'}
@@ -91,6 +85,25 @@ export function UserAvatar() {
           label
         )}
       </div>
+  );
+
+  if (compact) {
+    return circle;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {(name || email) && (
+        <div className="flex min-w-0 flex-col text-right">
+          {name && (
+            <span className="truncate text-sm font-medium leading-tight text-slate-800">{name}</span>
+          )}
+          {email && (
+            <span className="truncate text-xs leading-tight text-slate-500">{email}</span>
+          )}
+        </div>
+      )}
+      {circle}
     </div>
   );
 }

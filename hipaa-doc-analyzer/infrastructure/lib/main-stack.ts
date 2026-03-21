@@ -9,9 +9,11 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 
 const backendDir = path.join(__dirname, '../../backend');
+const frontendDist = path.join(__dirname, '../../frontend/dist');
 
 export class MainStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -36,6 +38,15 @@ export class MainStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN
     });
 
+    // ── S3: SPA static site (public; no PHI) ─────────────────────
+    const frontendBucket = new s3.Bucket(this, 'FrontendWebsiteBucket', {
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html',
+      publicReadAccess: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS_ONLY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN
+    });
+
     // ── S3 Bucket ────────────────────────────────────────────────
     const documentBucket = new s3.Bucket(this, 'DocumentBucket', {
       encryptionKey: documentKey,
@@ -49,7 +60,11 @@ export class MainStack extends cdk.Stack {
       }],
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       cors: [{
-        allowedOrigins: ['http://localhost:5173', 'http://localhost:3000'],
+        allowedOrigins: [
+          'http://localhost:5173',
+          'http://localhost:3000',
+          frontendBucket.bucketWebsiteUrl
+        ],
         allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
         allowedHeaders: ['*']
       }]
@@ -124,6 +139,19 @@ export class MainStack extends cdk.Stack {
           'Use the same password you used when you first ran RunDbSetupFn (or run that Lambda again after changing it).'
       );
     }
+
+    /** Optional break-glass: comma-separated emails that are always admins (in addition to primary + delegates). */
+    const adminEmails =
+      process.env.ADMIN_EMAILS ?? this.node.tryGetContext('adminEmails') ?? '';
+    /** Optional: comma-separated entries matched to Cognito username or full email only (not email local-part). */
+    const adminUsernames =
+      process.env.ADMIN_USERNAMES ?? this.node.tryGetContext('adminUsernames') ?? '';
+    /** Optional: bootstrap primary admin when app_config has no primary_admin_sub (Cognito sub). */
+    const primaryAdminSub =
+      process.env.PRIMARY_ADMIN_SUB ?? this.node.tryGetContext('primaryAdminSub') ?? '';
+    /** Optional: bootstrap primary admin by email (resolved to sub once user exists in the pool). */
+    const primaryAdminEmail =
+      process.env.PRIMARY_ADMIN_EMAIL ?? this.node.tryGetContext('primaryAdminEmail') ?? '';
 
     // AWS_REGION is set automatically by the Lambda runtime
     const lambdaEnv: Record<string, string> = {
@@ -236,6 +264,24 @@ export class MainStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30)
     });
 
+    const adminUsersFn = new lambdaNode.NodejsFunction(this, 'AdminUsersFn', {
+      entry: path.join(backendDir, 'src/handlers/adminUsers.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: {
+        ...lambdaEnv,
+        ADMIN_EMAILS: adminEmails,
+        ADMIN_USERNAMES: adminUsernames,
+        PRIMARY_ADMIN_SUB: primaryAdminSub,
+        PRIMARY_ADMIN_EMAIL: primaryAdminEmail
+      },
+      vpc,
+      timeout: cdk.Duration.seconds(30)
+    });
+
     const runDbSetupFn = new lambdaNode.NodejsFunction(this, 'RunDbSetupFn', {
       entry: path.join(backendDir, 'src/handlers/runDbSetup.ts'),
       handler: 'handler',
@@ -266,11 +312,27 @@ export class MainStack extends cdk.Stack {
     database.connections.allowFrom(savedSummariesFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getDocumentViewUrlFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(sharesFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(adminUsersFn, ec2.Port.tcp(5432));
 
     sharesFn.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ['cognito-idp:ListUsers'],
+        actions: ['cognito-idp:ListUsers', 'cognito-idp:AdminGetUser'],
+        resources: [userPool.userPoolArn]
+      })
+    );
+
+    adminUsersFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'cognito-idp:ListUsers',
+          'cognito-idp:AdminGetUser',
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminDeleteUser',
+          'cognito-idp:AdminDisableUser',
+          'cognito-idp:AdminEnableUser'
+        ],
         resources: [userPool.userPoolArn]
       })
     );
@@ -314,7 +376,7 @@ export class MainStack extends cdk.Stack {
       },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: ['POST', 'GET', 'DELETE', 'OPTIONS'],
+        allowMethods: ['POST', 'GET', 'DELETE', 'PATCH', 'OPTIONS'],
         allowHeaders: ['Authorization', 'Content-Type']
       }
     });
@@ -382,6 +444,19 @@ export class MainStack extends cdk.Stack {
     sharesResource.addResource('incoming').addMethod('GET', lambdaIntegration(sharesFn), authOptions);
     sharesResource.addResource('{shareId}').addMethod('DELETE', lambdaIntegration(sharesFn), authOptions);
 
+    const adminResource = api.root.addResource('admin');
+    adminResource.addResource('me').addMethod('GET', lambdaIntegration(adminUsersFn), authOptions);
+    const adminAdminsResource = adminResource.addResource('admins');
+    adminAdminsResource.addMethod('GET', lambdaIntegration(adminUsersFn), authOptions);
+    adminAdminsResource.addMethod('POST', lambdaIntegration(adminUsersFn), authOptions);
+    adminAdminsResource.addResource('{sub}').addMethod('DELETE', lambdaIntegration(adminUsersFn), authOptions);
+    const adminUsersResource = adminResource.addResource('users');
+    adminUsersResource.addMethod('GET', lambdaIntegration(adminUsersFn), authOptions);
+    adminUsersResource.addMethod('POST', lambdaIntegration(adminUsersFn), authOptions);
+    const adminUserByUsernameResource = adminUsersResource.addResource('{username}');
+    adminUserByUsernameResource.addMethod('PATCH', lambdaIntegration(adminUsersFn), authOptions);
+    adminUserByUsernameResource.addMethod('DELETE', lambdaIntegration(adminUsersFn), authOptions);
+
     // CORS on gateway error responses (502, 504, 4xx) so browser gets headers when Lambda fails or times out.
     // Only Access-Control-Allow-Origin; comma in Allow-Headers is invalid as a gateway response mapping.
     const corsOriginOnly = { 'Access-Control-Allow-Origin': "'*'" };
@@ -411,6 +486,20 @@ export class MainStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'BucketName', {
       value: documentBucket.bucketName
     });
+    new cdk.CfnOutput(this, 'FrontendWebsiteURL', {
+      value: frontendBucket.bucketWebsiteUrl,
+      description: 'HIPAA Analyzer UI (build frontend before cdk deploy)'
+    });
+    new cdk.CfnOutput(this, 'FrontendBucketName', {
+      value: frontendBucket.bucketName
+    });
+
+    new s3deploy.BucketDeployment(this, 'FrontendDeploy', {
+      sources: [s3deploy.Source.asset(frontendDist)],
+      destinationBucket: frontendBucket,
+      prune: true
+    });
+
     new cdk.CfnOutput(this, 'RunDbSetupFunctionName', {
       value: runDbSetupFn.functionName,
       description: 'Invoke once to create DB and schema: aws lambda invoke --function-name <value> --region us-east-1 out.json'

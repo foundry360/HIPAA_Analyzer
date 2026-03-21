@@ -97,6 +97,20 @@ All require **Cognito JWT** in the `Authorization: Bearer <token>` header.
 5. `POST {APIUrl}analyze` with `documentId`, `s3Key`, `analysisType` → expect 200 and a summary (or 500 if Bedrock/Textract/Comprehend not enabled in your account).
 6. `GET {APIUrl}result/{documentId}` → expect 200 and the same result payload.
 
+### Primary administrator (Manage users)
+
+The **primary** admin is stored in Postgres (`app_config.key = 'primary_admin_sub'`). It is **not** auto-selected from “earliest Cognito user” (that incorrectly made new invitees the primary).
+
+**First-time bootstrap** when that row is missing: pass **`PRIMARY_ADMIN_EMAIL`** (full email; user must exist in Cognito) or **`PRIMARY_ADMIN_SUB`** (Cognito `sub`) via CDK context or environment on deploy. Optional break-glass: **`ADMIN_EMAILS`** / **`ADMIN_USERNAMES`**.
+
+**Fix a wrong primary** (replace with the real admin’s `sub` from Cognito):
+
+```sql
+UPDATE app_config SET value = '<cognito_sub>' WHERE key = 'primary_admin_sub';
+```
+
+New users invited from Manage users are **regular users** unless you enable **Also assign delegated administrator role** on invite, or add them under “Add administrator” afterward.
+
 ## 6. Frontend env
 
 When building the frontend, set:
@@ -105,6 +119,17 @@ When building the frontend, set:
 - `VITE_COGNITO_CLIENT_ID` = UserPoolClientId output  
 - `VITE_API_BASE_URL` = APIUrl output (no trailing slash)  
 - `VITE_AWS_REGION` = e.g. `us-east-1`
+
+### Deploy UI to S3 (included in CDK stack)
+
+After `cdk deploy`, CloudFormation outputs **`FrontendWebsiteURL`** (S3 static website). The stack runs **`BucketDeployment`** from `frontend/dist`, so **build the SPA first**, then deploy:
+
+```bash
+cd frontend && npm install && npm run build
+cd ../infrastructure && npm run deploy:frontend
+```
+
+(`deploy:frontend` runs build + `cdk deploy`; `DB_PASSWORD` or `-c dbPassword=...` must still be set as for any CDK deploy.)
 
 ## Notes
 
