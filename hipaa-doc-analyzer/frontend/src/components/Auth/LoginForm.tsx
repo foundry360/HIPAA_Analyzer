@@ -74,12 +74,12 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="New password"
-            className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+            className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
             required
             minLength={12}
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+          <button type="submit" disabled={loading} className="w-full py-3 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50">
             {loading ? 'Updating…' : 'Update password'}
           </button>
         </form>
@@ -100,11 +100,11 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
             value={mfaCode}
             onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="000000"
-            className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-center text-lg tracking-widest"
+            className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 text-center text-lg tracking-widest"
             maxLength={6}
           />
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" disabled={loading || mfaCode.length !== 6} className="w-full py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+          <button type="submit" disabled={loading || mfaCode.length !== 6} className="w-full py-3 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50">
             {loading ? 'Verifying…' : 'Verify'}
           </button>
         </form>
@@ -122,7 +122,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder="Username or email"
-          className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+          className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
           required
         />
         <input
@@ -130,11 +130,11 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
-          className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+          className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
           required
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" disabled={loading} className="w-full py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+        <button type="submit" disabled={loading} className="w-full py-3 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 disabled:opacity-50">
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

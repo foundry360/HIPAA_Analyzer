@@ -48,6 +48,31 @@ CREATE INDEX IF NOT EXISTS idx_phi_token_maps_expires_at ON phi_token_maps(expir
 CREATE INDEX IF NOT EXISTS idx_analysis_results_user_id ON analysis_results(user_id);
 ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS analysis_status VARCHAR(50);
 UPDATE analysis_results SET analysis_status = 'COMPLETE' WHERE analysis_status IS NULL;
+CREATE TABLE IF NOT EXISTS saved_summaries (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         VARCHAR(255) NOT NULL,
+  document_id     UUID NOT NULL,
+  file_name       VARCHAR(512) NOT NULL,
+  analysis_type   VARCHAR(100) NOT NULL,
+  summary         TEXT NOT NULL,
+  phi_detected    BOOLEAN DEFAULT FALSE,
+  entities_redacted INTEGER DEFAULT 0,
+  model_used        VARCHAR(100),
+  saved_at        TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS idx_saved_summaries_user_saved_at ON saved_summaries (user_id, saved_at DESC);
+CREATE TABLE IF NOT EXISTS document_shares (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id         UUID NOT NULL,
+  owner_user_id       VARCHAR(255) NOT NULL,
+  shared_with_user_id VARCHAR(255) NOT NULL,
+  file_name           VARCHAR(512) DEFAULT 'Document',
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (document_id, shared_with_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_document_shares_shared_with ON document_shares (shared_with_user_id);
+CREATE INDEX IF NOT EXISTS idx_document_shares_document ON document_shares (document_id);
 `;
 
 export const handler = async (): Promise<{ statusCode: number; body: string }> => {

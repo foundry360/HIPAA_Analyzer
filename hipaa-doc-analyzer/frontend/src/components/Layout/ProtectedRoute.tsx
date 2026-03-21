@@ -21,8 +21,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (auth === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
       </div>
     );
   }

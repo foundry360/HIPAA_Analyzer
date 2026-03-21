@@ -194,6 +194,10 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
   }
 
   const { documentId, s3Key, analysisType } = body;
+  const rawForce = (body as { forceReanalyze?: unknown }).forceReanalyze;
+  const shouldForceReanalyze =
+    rawForce === true ||
+    (typeof rawForce === 'string' && rawForce.toLowerCase() === 'true');
 
   if (!hasRequiredAnalyzeFields(body) || !isValidAnalysisType(analysisType)) {
     return {
@@ -207,6 +211,25 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
 
   if (existing) {
     if (existing.analysis_status === 'COMPLETE') {
+      if (shouldForceReanalyze) {
+        await resetAnalysisToPending(documentId, userId, analysisType);
+        await invokeWorker({
+          mode: 'worker',
+          documentId,
+          s3Key,
+          analysisType,
+          userId
+        });
+        return {
+          statusCode: 202,
+          headers: CORS_HEADERS,
+          body: JSON.stringify({
+            documentId,
+            status: 'PENDING',
+            message: 'Analysis restarted. Poll GET /result/{documentId}.'
+          })
+        };
+      }
       return {
         statusCode: 200,
         headers: CORS_HEADERS,
@@ -256,6 +279,25 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
     if (err.code === '23505') {
       const row = await getAnalysisResult(documentId, userId);
       if (row?.analysis_status === 'COMPLETE') {
+        if (shouldForceReanalyze) {
+          await resetAnalysisToPending(documentId, userId, analysisType);
+          await invokeWorker({
+            mode: 'worker',
+            documentId,
+            s3Key,
+            analysisType,
+            userId
+          });
+          return {
+            statusCode: 202,
+            headers: CORS_HEADERS,
+            body: JSON.stringify({
+              documentId,
+              status: 'PENDING',
+              message: 'Analysis restarted. Poll GET /result/{documentId}.'
+            })
+          };
+        }
         return {
           statusCode: 200,
           headers: CORS_HEADERS,

@@ -7,41 +7,15 @@ import { AnalysisType } from '../types';
 const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION });
 
 const ANALYSIS_PROMPTS: Record<AnalysisType, string> = {
-  GENERAL_SUMMARY: `Provide a comprehensive clinical summary including:
-1. Chief complaint
-2. Key clinical findings
-3. Diagnoses or conditions mentioned
-4. Current medications referenced
-5. Recommended follow-up actions
-6. Any critical values or urgent findings`,
+  GENERAL_SUMMARY: `Produce a comprehensive clinical summary. Cover chief complaint, key findings, diagnoses, medications, follow-up, and urgent findings as needed—each as its own ## section with narrative prose underneath (see global FORMAT rules).`,
 
-  MEDICATIONS: `Extract and summarize all medication information including:
-1. Current medications with dosages
-2. Medication changes or discontinuations
-3. New prescriptions
-4. Allergies or adverse reactions noted
-5. Medication compliance notes`,
+  MEDICATIONS: `Produce a medication-focused summary: each distinct topic gets its own ## heading and narrative paragraph(s) per FORMAT rules.`,
 
-  DIAGNOSES: `Extract and summarize all diagnostic information including:
-1. Primary diagnosis
-2. Secondary diagnoses or comorbidities
-3. Differential diagnoses under consideration
-4. Diagnostic test results referenced
-5. ICD codes if mentioned`,
+  DIAGNOSES: `Produce a diagnosis-focused summary: each distinct topic gets its own ## heading and narrative prose per FORMAT rules.`,
 
-  FOLLOW_UP_ACTIONS: `Extract all follow-up actions and care plan items including:
-1. Follow-up appointments required
-2. Tests or procedures ordered
-3. Referrals made
-4. Patient education instructions
-5. Return precautions`,
+  FOLLOW_UP_ACTIONS: `Produce a follow-up and care-plan summary: each distinct topic gets its own ## heading and narrative prose per FORMAT rules.`,
 
-  CHIEF_COMPLAINT: `Summarize the chief complaint and presenting symptoms including:
-1. Primary reason for visit
-2. Symptom onset, duration, and severity
-3. Associated symptoms
-4. Relevant history related to chief complaint
-5. Vital signs if documented`
+  CHIEF_COMPLAINT: `Produce a chief-complaint–focused summary: each distinct topic gets its own ## heading and narrative prose per FORMAT rules.`
 };
 
 export async function generateClinicalSummary(
@@ -52,13 +26,21 @@ export async function generateClinicalSummary(
 
   const prompt = `You are a clinical documentation specialist analyzing a de-identified medical document.
 
-IMPORTANT INSTRUCTIONS:
-- This document has been de-identified. All patient identifiers have been replaced with tokens like [NAME_1], [DATE_1], [ID_1]
-- Refer to the patient only as "the patient" — never attempt to reconstruct identifiers
-- Focus exclusively on clinical content
-- Be concise, accurate, and use clinical terminology
-- If information is not present in the document, state "Not documented"
-- Do not infer or assume information not explicitly stated
+CLINICAL RULES:
+- The source has been de-identified; identifiers appear as tokens like [NAME_1], [DATE_1], [ID_1]
+- Refer to the patient only as "the patient" — never reconstruct identifiers
+- Focus on clinical content only; be concise and use appropriate terminology
+- If something is not in the document, write that it was not documented
+- Do not infer beyond what the document states
+
+FORMAT (NARRATIVE REPORT — FOLLOW EXACTLY):
+- Do not use an H1 title; start directly with ## (H2) sections.
+- Use ## (H2) for each section. You may number sections in the heading text: "## 1. Chief complaint", "## 2. Key findings" — always one space after the period before the section title. Under each ## write ordinary paragraphs: full sentences like a typed clinical note, not an outline.
+- Prefer one paragraph per ##; add a second paragraph under the same ## only if absolutely necessary for clarity.
+- ### is discouraged; do not place ### directly under H1.
+
+FORBIDDEN IN THE BODY (under any ##): bullet lists (-, *, •), markdown list blocks (multiple lines starting with - or * or with "1." "2." as list items), or pseudo-outlines. Do not use markdown list syntax for body content. If you need to enumerate items in prose, use sentences. Section numbering belongs only in ## / ### heading text (e.g. "## 1. Title"), not as a separate numbered list.
+- Use **bold** sparingly (e.g. a drug name or critical value). No HTML tags. No fenced code blocks unless quoting exact text from the document.
 
 ANALYSIS REQUESTED:
 ${analysisInstructions}
@@ -66,14 +48,14 @@ ${analysisInstructions}
 DOCUMENT:
 ${redactedText}
 
-Provide your structured clinical analysis:`;
+Write the clinical summary now. It must read as continuous narrative paragraphs under ## headings, with zero list markers or outline formatting.`;
 
   const requestBody = {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: parseInt(process.env.BEDROCK_MAX_TOKENS || '1500'),
-    messages: [
-      { role: 'user', content: prompt }
-    ]
+    /** >0 so repeat runs on the same document are not bit-for-bit identical (still clinically grounded). */
+    temperature: parseFloat(process.env.BEDROCK_TEMPERATURE || '0.5'),
+    messages: [{ role: 'user', content: prompt }]
   };
 
   const command = new InvokeModelCommand({

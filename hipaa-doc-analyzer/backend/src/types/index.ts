@@ -21,6 +21,8 @@ export interface AnalyzeRequest {
   documentId: string;
   s3Key: string;
   analysisType: AnalysisType;
+  /** When true and a completed analysis exists, reset and run the pipeline again (same S3 object). */
+  forceReanalyze?: boolean;
 }
 
 export type AnalysisJobStatus =

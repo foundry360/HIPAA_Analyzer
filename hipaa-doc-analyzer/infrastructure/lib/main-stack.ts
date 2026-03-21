@@ -137,7 +137,8 @@ export class MainStack extends cdk.Stack {
       DB_PORT: '5432',
       DB_NAME: 'hipaa_analyzer',
       DB_USER: 'analyzer_user',
-      DB_PASSWORD: dbPassword
+      DB_PASSWORD: dbPassword,
+      COGNITO_USER_POOL_ID: userPool.userPoolId
     };
 
     // ── Lambda Functions (NodejsFunction bundles deps: uuid, pg, aws-sdk) ──
@@ -199,6 +200,42 @@ export class MainStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30)
     });
 
+    const savedSummariesFn = new lambdaNode.NodejsFunction(this, 'SavedSummariesFn', {
+      entry: path.join(backendDir, 'src/handlers/savedSummaries.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(30)
+    });
+
+    const getDocumentViewUrlFn = new lambdaNode.NodejsFunction(this, 'GetDocumentViewUrlFn', {
+      entry: path.join(backendDir, 'src/handlers/getDocumentViewUrl.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(30)
+    });
+
+    const sharesFn = new lambdaNode.NodejsFunction(this, 'SharesFn', {
+      entry: path.join(backendDir, 'src/handlers/shares.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(30)
+    });
+
     const runDbSetupFn = new lambdaNode.NodejsFunction(this, 'RunDbSetupFn', {
       entry: path.join(backendDir, 'src/handlers/runDbSetup.ts'),
       handler: 'handler',
@@ -219,11 +256,24 @@ export class MainStack extends cdk.Stack {
     // ── Grant Permissions ────────────────────────────────────────
     documentBucket.grantReadWrite(getUploadUrlFn);
     documentBucket.grantRead(analyzeDocumentFn);
+    documentBucket.grantRead(getDocumentViewUrlFn);
     documentKey.grantEncryptDecrypt(getUploadUrlFn);
     documentKey.grantEncryptDecrypt(analyzeDocumentFn);
+    documentKey.grantDecrypt(getDocumentViewUrlFn);
     tokenMapKey.grantEncryptDecrypt(analyzeDocumentFn);
     database.connections.allowFrom(analyzeDocumentFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getResultFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(savedSummariesFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(getDocumentViewUrlFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(sharesFn, ec2.Port.tcp(5432));
+
+    sharesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['cognito-idp:ListUsers'],
+        resources: [userPool.userPoolArn]
+      })
+    );
 
     // Analyze pipeline: Textract, Comprehend Medical, Bedrock
     analyzeDocumentFn.addToRolePolicy(new iam.PolicyStatement({
@@ -258,9 +308,13 @@ export class MainStack extends cdk.Stack {
 
     const api = new apigateway.RestApi(this, 'AnalyzerAPI', {
       restApiName: 'hipaa-doc-analyzer',
+      /** REGIONAL: new routes are available immediately; EDGE (default) can delay via CloudFront. */
+      endpointConfiguration: {
+        types: [apigateway.EndpointType.REGIONAL]
+      },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: ['POST', 'GET', 'OPTIONS'],
+        allowMethods: ['POST', 'GET', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Authorization', 'Content-Type']
       }
     });
@@ -300,6 +354,33 @@ export class MainStack extends cdk.Stack {
       lambdaIntegration(getResultFn),
       authOptions
     );
+
+    const savedSummariesResource = api.root.addResource('saved-summaries');
+    savedSummariesResource.addMethod(
+      'GET',
+      lambdaIntegration(savedSummariesFn),
+      authOptions
+    );
+    savedSummariesResource.addMethod(
+      'POST',
+      lambdaIntegration(savedSummariesFn),
+      authOptions
+    );
+
+    const documentResource = api.root.addResource('document');
+    const documentIdForViewResource = documentResource.addResource('{documentId}');
+    const documentViewUrlResource = documentIdForViewResource.addResource('view-url');
+    documentViewUrlResource.addMethod(
+      'GET',
+      lambdaIntegration(getDocumentViewUrlFn),
+      authOptions
+    );
+
+    const sharesResource = api.root.addResource('shares');
+    sharesResource.addMethod('POST', lambdaIntegration(sharesFn), authOptions);
+    sharesResource.addMethod('GET', lambdaIntegration(sharesFn), authOptions);
+    sharesResource.addResource('incoming').addMethod('GET', lambdaIntegration(sharesFn), authOptions);
+    sharesResource.addResource('{shareId}').addMethod('DELETE', lambdaIntegration(sharesFn), authOptions);
 
     // CORS on gateway error responses (502, 504, 4xx) so browser gets headers when Lambda fails or times out.
     // Only Access-Control-Allow-Origin; comma in Allow-Headers is invalid as a gateway response mapping.

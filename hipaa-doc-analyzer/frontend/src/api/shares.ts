@@ -1,0 +1,90 @@
+import { fetchAuthSession } from 'aws-amplify/auth';
+
+async function authHeaders(): Promise<{ Authorization: string }> {
+  const session = await fetchAuthSession();
+  const token = session.tokens?.idToken?.toString();
+  if (!token) throw new Error('Not authenticated');
+  return { Authorization: `Bearer ${token}` };
+}
+
+function apiBase(): string {
+  const base = import.meta.env.VITE_API_BASE_URL;
+  if (!base) throw new Error('API URL not configured');
+  return base;
+}
+
+export interface DocumentShareRow {
+  id: string;
+  document_id: string;
+  owner_user_id: string;
+  shared_with_user_id: string;
+  file_name: string;
+  created_at: string;
+}
+
+export async function fetchSharesForDocument(documentId: string): Promise<DocumentShareRow[]> {
+  const q = new URLSearchParams({ documentId });
+  const res = await fetch(`${apiBase()}/shares?${q}`, {
+    headers: { ...(await authHeaders()) }
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = 'Could not load shares';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+  const data = (await res.json()) as { shares: DocumentShareRow[] };
+  return data.shares ?? [];
+}
+
+export async function createDocumentShare(params: {
+  documentId: string;
+  email: string;
+  fileName: string;
+}): Promise<DocumentShareRow> {
+  const res = await fetch(`${apiBase()}/shares`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders())
+    },
+    body: JSON.stringify({
+      documentId: params.documentId,
+      email: params.email.trim(),
+      fileName: params.fileName
+    })
+  });
+  const t = await res.text();
+  if (!res.ok) {
+    let msg = 'Share failed';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+  const data = JSON.parse(t) as { share: DocumentShareRow };
+  return data.share;
+}
+
+export async function revokeDocumentShare(shareId: string): Promise<void> {
+  const res = await fetch(`${apiBase()}/shares/${encodeURIComponent(shareId)}`, {
+    method: 'DELETE',
+    headers: { ...(await authHeaders()) }
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = 'Could not remove share';
+    try {
+      if (t) msg = (JSON.parse(t) as { error?: string }).error ?? t;
+    } catch {
+      msg = t || msg;
+    }
+    throw new Error(msg);
+  }
+}

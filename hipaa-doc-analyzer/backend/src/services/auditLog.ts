@@ -163,3 +163,33 @@ export async function getAnalysisResult(
   if (result.rows.length === 0) return null;
   return result.rows[0] as AnalysisResultRow;
 }
+
+/** Owner or user named on document_shares for this document. */
+export async function getAnalysisResultForViewer(
+  documentId: string,
+  viewerUserId: string
+): Promise<AnalysisResultRow | null> {
+  const ownerRow = await getAnalysisResult(documentId, viewerUserId);
+  if (ownerRow) return ownerRow;
+
+  // Shared viewers only — must not reference document_shares in the owner query:
+  // if the shares table was never migrated, the owner path would still 500 otherwise.
+  try {
+    const result = await pool.query(
+      `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
+              ar.phi_detected, ar.entity_count, ar.model_used,
+              COALESCE(ar.analysis_status, 'COMPLETE') AS analysis_status
+       FROM analysis_results ar
+       INNER JOIN document_shares ds
+         ON ds.document_id = ar.document_id
+        AND ds.owner_user_id = ar.user_id
+        AND ds.shared_with_user_id = $2
+       WHERE ar.document_id = $1`,
+      [documentId, viewerUserId]
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0] as AnalysisResultRow;
+  } catch {
+    return null;
+  }
+}

@@ -52,3 +52,15 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_document_id ON audit_log(document_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_phi_token_maps_expires_at ON phi_token_maps(expires_at);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_user_id ON analysis_results(user_id);
+
+CREATE TABLE IF NOT EXISTS document_shares (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id         UUID NOT NULL,
+  owner_user_id       VARCHAR(255) NOT NULL,
+  shared_with_user_id VARCHAR(255) NOT NULL,
+  file_name           VARCHAR(512) DEFAULT 'Document',
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (document_id, shared_with_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_document_shares_shared_with ON document_shares (shared_with_user_id);
+CREATE INDEX IF NOT EXISTS idx_document_shares_document ON document_shares (document_id);

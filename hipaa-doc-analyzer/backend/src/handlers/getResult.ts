@@ -1,5 +1,5 @@
 import { APIGatewayProxyHandler } from 'aws-lambda';
-import { getAnalysisResult } from '../services/auditLog';
+import { getAnalysisResultForViewer } from '../services/auditLog';
 import { AnalyzeResponse } from '../types';
 import { CORS_HEADERS } from '../utils/cors';
 
@@ -19,7 +19,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       };
     }
 
-    const row = await getAnalysisResult(documentId, userId);
+    const row = await getAnalysisResultForViewer(documentId, userId);
     if (!row) {
       return {
         statusCode: 404,

@@ -2,6 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  color-scheme: light;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-white text-slate-900 antialiased;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Lighter gray scrollbars (Firefox + WebKit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(226 232 240) rgb(248 250 252); /* slate-200 thumb, slate-50 track */
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgb(248 250 252);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(226 232 240);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(203 213 225);
+}
+
+/* react-pdf: flush top alignment, no stray gap under canvas */
+.pdf-viewer .react-pdf__Document {
+  margin: 0;
+  padding: 0;
+}
+.pdf-viewer .react-pdf__Page {
+  margin: 0;
+}
+.pdf-viewer .react-pdf__Page canvas {
+  display: block;
+  vertical-align: top;
+}
+
+/*
+ * PDFs often bake in a large top margin (white space before body text). A
+ * modest negative margin pulls each page up so body text sits higher; % is
+ * relative to container width (CSS). gap-10 on Document leaves room so pages
+ * don’t overlap after the trim.
+ */
+.pdf-viewer .pdf-page-clip {
+  margin-top: clamp(-2.5rem, -4.5%, -0.75rem);
+}
+
+/* Clinical summary: consistent heading weight + gap after every heading */
+.clinical-summary > h1,
+.clinical-summary > h2,
+.clinical-summary > h3 {
+  font-weight: 700;
+}
+
+.clinical-summary > h1 + p,
+.clinical-summary > h2 + p,
+.clinical-summary > h3 + p,
+.clinical-summary > h1 + ul,
+.clinical-summary > h2 + ul,
+.clinical-summary > h3 + ul,
+.clinical-summary > h1 + ol,
+.clinical-summary > h2 + ol,
+.clinical-summary > h3 + ol {
+  margin-top: 1rem !important;
+}
+
+/* Space before a new paragraph (after body text or a list) */
+.clinical-summary p + p,
+.clinical-summary ul + p,
+.clinical-summary ol + p,
+.clinical-summary li p + p {
+  margin-top: 1.25rem !important;
 }
