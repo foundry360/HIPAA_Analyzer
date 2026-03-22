@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
+import { useLayout } from '../../context/LayoutContext';
 import {
   ClipboardPlus,
   FileText,
@@ -15,8 +16,6 @@ import type { HistoryTableRow } from '../../types';
 import { mergeHistoryRows, rowKey } from '../../utils/historyRows';
 import { GlobalSearchModal } from './GlobalSearchModal';
 
-const STORAGE_KEY = 'hipaa-sidebar-collapsed';
-
 const baseNav: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
   { to: '/', label: 'Create Summary', icon: ClipboardPlus, end: true },
   { to: '/history', label: 'Summaries', icon: FileText }
@@ -24,25 +23,9 @@ const baseNav: { to: string; label: string; icon: LucideIcon; end?: boolean }[] 
 
 export function Sidebar() {
   const { admin } = useAdmin();
+  const { sidebarCollapsed: collapsed, toggleSidebarCollapsed: toggle } = useLayout();
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentRows, setRecentRows] = useState<HistoryTableRow[]>([]);
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  }, [collapsed]);
-
-  const toggle = useCallback(() => setCollapsed((c) => !c), []);
 
   const nav = useMemo(() => {
     const items = [...baseNav];

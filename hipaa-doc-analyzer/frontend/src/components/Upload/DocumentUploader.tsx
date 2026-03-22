@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Columns2, Download, FileCheck, Loader2 } from 'lucide-react';
+import { Columns2, Download, FileCheck, Loader2, MessageSquare } from 'lucide-react';
 import { getDocumentViewUrl } from '../../api/documentViewUrl';
 import { useDocumentUpload } from '../../hooks/useDocumentUpload';
 import { AnalysisTypeSelector } from './AnalysisTypeSelector';
 import { ClinicalSummaryMarkdown } from './ClinicalSummaryMarkdown';
 import { PdfDocumentViewer } from './PdfDocumentViewer';
+import { useLayout } from '../../context/LayoutContext';
 import { SummaryCardActions } from './SummaryCardActions';
 import type { AnalysisType, SplitFromHistoryState } from '../../types';
 
@@ -38,6 +39,7 @@ export function DocumentUploader() {
   const [docPanelLayout, setDocPanelLayout] = useState<'split' | 'pdfFull'>('split');
   const { upload, reanalyze, isUploading, isAnalyzing, result, error, applySavedSummary } =
     useDocumentUpload();
+  const { openChatPanel, chatPanelOpen } = useLayout();
 
   useEffect(() => {
     if (!previewFile) {
@@ -169,6 +171,20 @@ export function DocumentUploader() {
       <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
         <h3 className="text-lg font-semibold text-slate-800">Clinical Summary</h3>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={openChatPanel}
+            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-blue-400 ${
+              chatPanelOpen
+                ? 'border-blue-400 bg-blue-50 text-blue-700 hover:border-blue-500 hover:bg-blue-50/90'
+                : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+            title="Open chat"
+            aria-label="Open chat about this summary"
+            aria-pressed={chatPanelOpen}
+          >
+            <MessageSquare className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
           <SummaryCardActions
             result={result}
             fileName={documentFileName}
@@ -299,6 +315,20 @@ export function DocumentUploader() {
                 <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
                   <h3 className="text-lg font-semibold text-slate-800">Clinical Summary</h3>
                   <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openChatPanel}
+                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-colors focus-visible:outline focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                        chatPanelOpen
+                          ? 'border-blue-400 bg-blue-50 text-blue-700 hover:border-blue-500 hover:bg-blue-50/90'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                      title="Open chat"
+                      aria-label="Open chat about this summary"
+                      aria-pressed={chatPanelOpen}
+                    >
+                      <MessageSquare className="h-4 w-4" strokeWidth={2} aria-hidden />
+                    </button>
                     <SummaryCardActions
                       result={result}
                       fileName={documentFileName}
