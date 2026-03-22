@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS phi_token_maps (
   expires_at        TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours'
 );
 
--- Analysis results table — summaries only, no PHI
+-- Analysis results — clinical summary plus optional de-identified source text (no raw PHI)
 CREATE TABLE IF NOT EXISTS analysis_results (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id     UUID NOT NULL UNIQUE,
@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS analysis_results (
   entity_count    INTEGER DEFAULT 0,
   model_used      VARCHAR(100),
   analysis_status VARCHAR(50) DEFAULT 'COMPLETE',
+  redacted_document_text TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 

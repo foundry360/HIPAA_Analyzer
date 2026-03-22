@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_document_id ON audit_log(document_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_phi_token_maps_expires_at ON phi_token_maps(expires_at);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_user_id ON analysis_results(user_id);
+ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS redacted_document_text TEXT;
 ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS analysis_status VARCHAR(50);
 UPDATE analysis_results SET analysis_status = 'COMPLETE' WHERE analysis_status IS NULL;
 CREATE TABLE IF NOT EXISTS saved_summaries (

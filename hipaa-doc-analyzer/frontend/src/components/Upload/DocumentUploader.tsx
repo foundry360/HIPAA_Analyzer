@@ -39,7 +39,7 @@ export function DocumentUploader() {
   const [docPanelLayout, setDocPanelLayout] = useState<'split' | 'pdfFull'>('split');
   const { upload, reanalyze, isUploading, isAnalyzing, result, error, applySavedSummary } =
     useDocumentUpload();
-  const { openChatPanel, chatPanelOpen } = useLayout();
+  const { openChatPanel, chatPanelOpen, setChatDocument } = useLayout();
 
   useEffect(() => {
     if (!previewFile) {
@@ -131,6 +131,18 @@ export function DocumentUploader() {
   useEffect(() => {
     if (!isPdf) setDocPanelLayout('split');
   }, [isPdf]);
+
+  useEffect(() => {
+    if (result?.documentId && result.summary?.trim()) {
+      setChatDocument({ documentId: result.documentId, fileName: documentFileName });
+    } else {
+      setChatDocument(null);
+    }
+  }, [result?.documentId, result?.summary, documentFileName, setChatDocument]);
+
+  useEffect(() => {
+    return () => setChatDocument(null);
+  }, [setChatDocument]);
 
   const downloadDocument = useCallback(async () => {
     const url = docDisplayUrl;

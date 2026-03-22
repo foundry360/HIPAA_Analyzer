@@ -228,6 +228,19 @@ export class MainStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30)
     });
 
+    const documentChatFn = new lambdaNode.NodejsFunction(this, 'DocumentChatFn', {
+      entry: path.join(backendDir, 'src/handlers/documentChat.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 256
+    });
+
     const savedSummariesFn = new lambdaNode.NodejsFunction(this, 'SavedSummariesFn', {
       entry: path.join(backendDir, 'src/handlers/savedSummaries.ts'),
       handler: 'handler',
@@ -311,6 +324,7 @@ export class MainStack extends cdk.Stack {
     tokenMapKey.grantEncryptDecrypt(analyzeDocumentFn);
     database.connections.allowFrom(analyzeDocumentFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getResultFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(documentChatFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(savedSummariesFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getDocumentViewUrlFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(sharesFn, ec2.Port.tcp(5432));
@@ -359,6 +373,15 @@ export class MainStack extends cdk.Stack {
     }));
     // Bedrock Marketplace: allow model subscription (required for first-time use of some models)
     analyzeDocumentFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe'],
+      resources: ['*']
+    }));
+
+    documentChatFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+      resources: ['*']
+    }));
+    documentChatFn.addToRolePolicy(new iam.PolicyStatement({
       actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe'],
       resources: ['*']
     }));
@@ -416,6 +439,12 @@ export class MainStack extends cdk.Stack {
     resultDocumentResource.addMethod(
       'GET',
       lambdaIntegration(getResultFn),
+      authOptions
+    );
+
+    api.root.addResource('document-chat').addMethod(
+      'POST',
+      lambdaIntegration(documentChatFn),
       authOptions
     );
 

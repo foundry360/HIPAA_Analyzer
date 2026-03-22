@@ -122,7 +122,8 @@ async function runAnalysisPipeline(
       summary,
       entities.length > 0,
       entities.length,
-      modelUsed
+      modelUsed,
+      redactedText
     );
 
     await writeAuditLog({

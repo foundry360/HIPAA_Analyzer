@@ -450,10 +450,28 @@ export function HistoryPage() {
                   const dateStr =
                     row.kind === 'saved' ? row.data.saved_at : row.data.shared_at;
                   const d = row.data;
+                  const isRowSelected =
+                    !!selected &&
+                    ((selected.kind === 'saved' &&
+                      row.kind === 'saved' &&
+                      selected.data.id === row.data.id) ||
+                      (selected.kind === 'shared' &&
+                        row.kind === 'shared' &&
+                        selected.data.share_id === row.data.share_id));
                   return (
                   <tr
                     key={rowKey}
-                    className="odd:bg-white even:bg-slate-50/80 hover:bg-slate-100/90"
+                    className={[
+                      'cursor-pointer transition-colors',
+                      isRowSelected
+                        ? 'bg-blue-50 ring-1 ring-inset ring-blue-200 hover:bg-blue-50/90'
+                        : 'odd:bg-white even:bg-slate-50/80 hover:bg-slate-100/90'
+                    ].join(' ')}
+                    aria-label={`Open split view: ${d.file_name}`}
+                    onClick={() => {
+                      setActionsMenuKey(null);
+                      openDocumentInSplitView(row);
+                    }}
                   >
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                       {formatSavedAt(dateStr)}
@@ -500,7 +518,10 @@ export function HistoryPage() {
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td
+                      className="px-4 py-3 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <HistoryRowActions
                         rowKey={rowKey}
                         isOpen={actionsMenuKey === rowKey}

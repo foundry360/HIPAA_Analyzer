@@ -77,3 +77,117 @@ Write the clinical summary now. It must read as continuous narrative paragraphs 
 
   return responseBody.content[0].text;
 }
+
+const MAX_CHAT_SUMMARY_CHARS = 48_000;
+const MAX_CHAT_DOCUMENT_CHARS = 120_000;
+const MAX_CHAT_MESSAGE_CHARS = 12_000;
+const MAX_CHAT_TURNS = 24;
+
+function validateChatMessages(
+  messages: { role: string; content: string }[]
+): asserts messages is { role: 'user' | 'assistant'; content: string }[] {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('messages must be a non-empty array');
+  }
+  if (messages.length > MAX_CHAT_TURNS) {
+    throw new Error(`At most ${MAX_CHAT_TURNS} messages per request`);
+  }
+  if (messages[0]!.role !== 'user') {
+    throw new Error('Conversation must start with a user message');
+  }
+  if (messages[messages.length - 1]!.role !== 'user') {
+    throw new Error('Last message must be from the user');
+  }
+  for (let i = 0; i < messages.length; i++) {
+    const r = messages[i]!.role;
+    if (r !== 'user' && r !== 'assistant') {
+      throw new Error('Invalid message role');
+    }
+    if (i % 2 === 0 && r !== 'user') throw new Error('Messages must alternate starting with user');
+    if (i % 2 === 1 && r !== 'assistant') throw new Error('Messages must alternate user/assistant');
+    const c = messages[i]!.content;
+    if (typeof c !== 'string' || !c.trim()) {
+      throw new Error('Each message must have non-empty content');
+    }
+  }
+}
+
+/**
+ * Multi-turn chat grounded in the stored clinical summary and optional full de-identified document text.
+ */
+export async function documentChatCompletion(options: {
+  summaryContext: string;
+  /** De-identified source document (Textract + Comprehend); omitted for legacy analyses. */
+  documentContext?: string | null;
+  fileLabel: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+}): Promise<string> {
+  validateChatMessages(options.messages);
+
+  const summarySlice = options.summaryContext.slice(0, MAX_CHAT_SUMMARY_CHARS);
+  const docRaw = options.documentContext?.trim();
+  const documentSlice = docRaw ? docRaw.slice(0, MAX_CHAT_DOCUMENT_CHARS) : '';
+  const safeLabel = options.fileLabel.replace(/"/g, "'").slice(0, 512);
+
+  const system = documentSlice
+    ? `You are a clinical documentation assistant. The user is discussing de-identified material for document "${safeLabel}". Identifiers appear as tokens like [NAME_1], [DATE_1].
+
+RULES:
+- Refer to the patient only as "the patient"; never reconstruct identifiers from tokens.
+- You have both a clinical summary and the de-identified document text. Prefer the document text for specific details, lab values, and quotes; use the summary for structure. If the summary and document disagree, treat the document text as the source of truth for what was written.
+- If something is not in either the summary or the document text below, say it was not documented there.
+- Be concise, professional, and clinically appropriate. Do not give definitive medical diagnoses or treatment orders; you may explain what the record states.
+
+OUTPUT FORMAT:
+- Reply in plain text only. Do not use markdown: no headings with #, **bold**, bullets, numbered lists, or code fences.
+- Use normal sentences. If you need more than one paragraph, separate paragraphs with a blank line.
+
+CLINICAL SUMMARY:
+${summarySlice}
+
+DE-IDENTIFIED DOCUMENT TEXT:
+${documentSlice}`
+    : `You are a clinical documentation assistant. The user is discussing a de-identified clinical summary for document "${safeLabel}". Full source text is not stored for this analysis (run analysis again on a new upload to enable full-document Q&A). Identifiers appear as tokens like [NAME_1], [DATE_1].
+
+RULES:
+- Refer to the patient only as "the patient"; never reconstruct identifiers from tokens.
+- Answer from the clinical summary below and the conversation. If something is not in the summary, say it was not documented there.
+- Be concise, professional, and clinically appropriate. Do not give definitive medical diagnoses or treatment orders; you may explain what the summary states.
+
+OUTPUT FORMAT:
+- Reply in plain text only. Do not use markdown: no headings with #, **bold**, bullets, numbered lists, or code fences.
+- Use normal sentences. If you need more than one paragraph, separate paragraphs with a blank line.
+
+CLINICAL SUMMARY (context):
+${summarySlice}`;
+
+  const messages = options.messages.map((m) => ({
+    role: m.role,
+    content: m.content.slice(0, MAX_CHAT_MESSAGE_CHARS)
+  }));
+
+  const requestBody = {
+    anthropic_version: 'bedrock-2023-05-31',
+    max_tokens: parseInt(process.env.BEDROCK_CHAT_MAX_TOKENS || '2048'),
+    temperature: parseFloat(process.env.BEDROCK_CHAT_TEMPERATURE || '0.4'),
+    system,
+    messages
+  };
+
+  const command = new InvokeModelCommand({
+    modelId:
+      process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    contentType: 'application/json',
+    accept: 'application/json',
+    body: JSON.stringify(requestBody)
+  });
+
+  const response = await client.send(command);
+  const responseBody = JSON.parse(Buffer.from(response.body).toString('utf8'));
+
+  if (!responseBody.content?.[0]?.text) {
+    throw new Error('Bedrock returned empty response');
+  }
+
+  return responseBody.content[0].text;
+}

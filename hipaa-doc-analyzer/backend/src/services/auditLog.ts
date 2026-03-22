@@ -88,7 +88,9 @@ export async function updateAnalysisComplete(
   summary: string,
   phiDetected: boolean,
   entityCount: number,
-  modelUsed: string
+  modelUsed: string,
+  /** De-identified full text (Textract + Comprehend); used for document-aware chat. */
+  redactedDocumentText: string
 ): Promise<void> {
   await pool.query(
     `UPDATE analysis_results SET
@@ -97,10 +99,11 @@ export async function updateAnalysisComplete(
       phi_detected = $5,
       entity_count = $6,
       model_used = $7,
+      redacted_document_text = $8,
       analysis_status = 'COMPLETE'
      WHERE document_id = $1 AND user_id = $2`,
     [documentId, userId, analysisType,
-      summary, phiDetected, entityCount, modelUsed]
+      summary, phiDetected, entityCount, modelUsed, redactedDocumentText]
   );
 }
 
@@ -131,6 +134,7 @@ export async function resetAnalysisToPending(
       phi_detected = false,
       entity_count = 0,
       model_used = NULL,
+      redacted_document_text = NULL,
       analysis_status = 'PENDING'
      WHERE document_id = $1 AND user_id = $2`,
     [documentId, userId, analysisType]
@@ -146,22 +150,44 @@ export interface AnalysisResultRow {
   entity_count: number;
   model_used: string | null;
   analysis_status: AnalysisJobStatus;
+  /** De-identified source text for chat; null for analyses completed before this column existed. */
+  redacted_document_text: string | null;
+}
+
+function isUndefinedColumnError(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
 }
 
 export async function getAnalysisResult(
   documentId: string,
   userId: string
 ): Promise<AnalysisResultRow | null> {
-  const result = await pool.query(
-    `SELECT document_id, user_id, analysis_type, summary,
+  const params = [documentId, userId];
+  try {
+    const result = await pool.query(
+      `SELECT document_id, user_id, analysis_type, summary,
+            phi_detected, entity_count, model_used,
+            COALESCE(analysis_status, 'COMPLETE') AS analysis_status,
+            redacted_document_text
+     FROM analysis_results
+     WHERE document_id = $1 AND user_id = $2`,
+      params
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0] as AnalysisResultRow;
+  } catch (e) {
+    if (!isUndefinedColumnError(e)) throw e;
+    const result = await pool.query(
+      `SELECT document_id, user_id, analysis_type, summary,
             phi_detected, entity_count, model_used,
             COALESCE(analysis_status, 'COMPLETE') AS analysis_status
      FROM analysis_results
      WHERE document_id = $1 AND user_id = $2`,
-    [documentId, userId]
-  );
-  if (result.rows.length === 0) return null;
-  return result.rows[0] as AnalysisResultRow;
+      params
+    );
+    if (result.rows.length === 0) return null;
+    return { ...(result.rows[0] as Omit<AnalysisResultRow, 'redacted_document_text'>), redacted_document_text: null };
+  }
 }
 
 /** Owner or user named on document_shares for this document. */
@@ -175,8 +201,27 @@ export async function getAnalysisResultForViewer(
   // Shared viewers only — must not reference document_shares in the owner query:
   // if the shares table was never migrated, the owner path would still 500 otherwise.
   try {
-    const result = await pool.query(
-      `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
+    const params = [documentId, viewerUserId];
+    try {
+      const result = await pool.query(
+        `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
+              ar.phi_detected, ar.entity_count, ar.model_used,
+              COALESCE(ar.analysis_status, 'COMPLETE') AS analysis_status,
+              ar.redacted_document_text
+       FROM analysis_results ar
+       INNER JOIN document_shares ds
+         ON ds.document_id = ar.document_id
+        AND ds.owner_user_id = ar.user_id
+        AND ds.shared_with_user_id = $2
+       WHERE ar.document_id = $1`,
+        params
+      );
+      if (result.rows.length === 0) return null;
+      return result.rows[0] as AnalysisResultRow;
+    } catch (e) {
+      if (!isUndefinedColumnError(e)) throw e;
+      const result = await pool.query(
+        `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
               ar.phi_detected, ar.entity_count, ar.model_used,
               COALESCE(ar.analysis_status, 'COMPLETE') AS analysis_status
        FROM analysis_results ar
@@ -185,10 +230,14 @@ export async function getAnalysisResultForViewer(
         AND ds.owner_user_id = ar.user_id
         AND ds.shared_with_user_id = $2
        WHERE ar.document_id = $1`,
-      [documentId, viewerUserId]
-    );
-    if (result.rows.length === 0) return null;
-    return result.rows[0] as AnalysisResultRow;
+        params
+      );
+      if (result.rows.length === 0) return null;
+      return {
+        ...(result.rows[0] as Omit<AnalysisResultRow, 'redacted_document_text'>),
+        redacted_document_text: null
+      };
+    }
   } catch {
     return null;
   }

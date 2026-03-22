@@ -70,7 +70,7 @@ export function Header() {
           <img
             src="/logo.png"
             alt="Logo"
-            className="h-5 w-auto max-w-[min(100%,160px)] object-contain object-left"
+            className="h-8 w-auto max-w-[min(100%,240px)] object-contain object-left"
             decoding="async"
           />
         </div>

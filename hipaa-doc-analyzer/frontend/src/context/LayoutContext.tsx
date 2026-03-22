@@ -11,6 +11,9 @@ import {
 
 const SIDEBAR_STORAGE_KEY = 'hipaa-sidebar-collapsed';
 
+/** Active document for split-view chat (server loads summary by documentId). */
+export type ChatDocumentContext = { documentId: string; fileName: string } | null;
+
 type LayoutContextValue = {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -18,6 +21,8 @@ type LayoutContextValue = {
   chatPanelOpen: boolean;
   openChatPanel: () => void;
   closeChatPanel: () => void;
+  chatDocument: ChatDocumentContext;
+  setChatDocument: (ctx: ChatDocumentContext) => void;
 };
 
 const LayoutContext = createContext<LayoutContextValue | null>(null);
@@ -31,6 +36,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     }
   });
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  const [chatDocument, setChatDocument] = useState<ChatDocumentContext>(null);
   const sidebarCollapsedRef = useRef(sidebarCollapsed);
   const collapsedBeforeChatRef = useRef<boolean | null>(null);
 
@@ -74,11 +80,14 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       toggleSidebarCollapsed,
       chatPanelOpen,
       openChatPanel,
-      closeChatPanel
+      closeChatPanel,
+      chatDocument,
+      setChatDocument
     }),
     [
       sidebarCollapsed,
       chatPanelOpen,
+      chatDocument,
       toggleSidebarCollapsed,
       openChatPanel,
       closeChatPanel
