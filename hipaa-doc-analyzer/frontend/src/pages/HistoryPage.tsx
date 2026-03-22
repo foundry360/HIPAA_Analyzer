@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Download, Loader2, Waypoints, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  Waypoints,
+  X
+} from 'lucide-react';
 import {
   deleteSavedSummary,
   fetchSavedSummaries,
@@ -63,6 +73,84 @@ function rowToSplitState(row: HistoryTableRow): SplitFromHistoryState {
   };
 }
 
+type SummarySortColumn = 'date' | 'document' | 'analysis' | 'phi';
+
+function rowTimestamp(row: HistoryTableRow): number {
+  const iso = row.kind === 'saved' ? row.data.saved_at : row.data.shared_at;
+  return new Date(iso).getTime();
+}
+
+/** -1 when no PHI so “no PHI” sorts before any positive count when ascending */
+function phiSortValue(row: HistoryTableRow): number {
+  return row.data.phi_detected ? row.data.entities_redacted : -1;
+}
+
+function compareSummaryRows(
+  a: HistoryTableRow,
+  b: HistoryTableRow,
+  col: SummarySortColumn,
+  dir: 'asc' | 'desc'
+): number {
+  const flip = dir === 'desc' ? -1 : 1;
+  let cmp = 0;
+  switch (col) {
+    case 'date':
+      cmp = rowTimestamp(a) - rowTimestamp(b);
+      break;
+    case 'document':
+      cmp = a.data.file_name.localeCompare(b.data.file_name, undefined, { sensitivity: 'base' });
+      break;
+    case 'analysis':
+      cmp = a.data.analysis_type.localeCompare(b.data.analysis_type);
+      break;
+    case 'phi':
+      cmp = phiSortValue(a) - phiSortValue(b);
+      break;
+    default:
+      return 0;
+  }
+  return flip * cmp;
+}
+
+function SummarySortTh({
+  column,
+  label,
+  sortColumn,
+  sortDir,
+  onSort,
+  className
+}: {
+  column: SummarySortColumn;
+  label: string;
+  sortColumn: SummarySortColumn;
+  sortDir: 'asc' | 'desc';
+  onSort: (c: SummarySortColumn) => void;
+  className?: string;
+}) {
+  const active = sortColumn === column;
+  const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+  return (
+    <th scope="col" className={className ?? 'px-4 py-3'} aria-sort={ariaSort}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex w-full min-w-0 items-center justify-start gap-1.5 rounded px-0 py-0 text-left font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:bg-slate-100/80 hover:text-slate-800 focus-visible:outline focus-visible:ring-2 focus-visible:ring-blue-400"
+      >
+        <span className="truncate">{label}</span>
+        {active ? (
+          sortDir === 'asc' ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+        )}
+      </button>
+    </th>
+  );
+}
+
 export function HistoryPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -84,6 +172,8 @@ export function HistoryPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [shareRow, setShareRow] = useState<HistoryTableRow | null>(null);
   const [filterTab, setFilterTab] = useState<SummaryFilterTab>('all');
+  const [sortColumn, setSortColumn] = useState<SummarySortColumn>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const mergedRows = useMemo(
     (): HistoryTableRow[] => mergeHistoryRows(items, sharedWithMe),
@@ -96,6 +186,22 @@ export function HistoryPage() {
     return mergedRows.filter((r) => r.kind === 'shared');
   }, [mergedRows, filterTab]);
 
+  const sortedFilteredRows = useMemo(() => {
+    const rows = [...filteredRows];
+    rows.sort((a, b) => compareSummaryRows(a, b, sortColumn, sortDir));
+    return rows;
+  }, [filteredRows, sortColumn, sortDir]);
+
+  const handleSortClick = useCallback((col: SummarySortColumn) => {
+    setCurrentPage(1);
+    if (sortColumn === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(col);
+      setSortDir(col === 'date' || col === 'phi' ? 'desc' : 'asc');
+    }
+  }, [sortColumn]);
+
   const openDocumentInSplitView = useCallback(
     (row: HistoryTableRow) => {
       navigate('/', { state: { splitFromHistory: rowToSplitState(row) } });
@@ -104,19 +210,19 @@ export function HistoryPage() {
   );
 
   const { paginatedItems, totalPages, startIdx, endIdx, effectivePage } = useMemo(() => {
-    const total = filteredRows.length;
+    const total = sortedFilteredRows.length;
     const pages = Math.ceil(total / pageSize) || 1;
     const page = Math.min(Math.max(1, currentPage), pages);
     const start = (page - 1) * pageSize;
     const end = Math.min(start + pageSize, total);
     return {
-      paginatedItems: filteredRows.slice(start, end),
+      paginatedItems: sortedFilteredRows.slice(start, end),
       totalPages: pages,
       startIdx: total > 0 ? start + 1 : 0,
       endIdx: end,
       effectivePage: page
     };
-  }, [filteredRows, pageSize, currentPage]);
+  }, [sortedFilteredRows, pageSize, currentPage]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -306,11 +412,35 @@ export function HistoryPage() {
             <table className="w-full min-w-[960px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Document</th>
-                  <th className="px-4 py-3">Analysis type</th>
-                  <th className="px-4 py-3">PHI</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <SummarySortTh
+                    column="date"
+                    label="Date"
+                    sortColumn={sortColumn}
+                    sortDir={sortDir}
+                    onSort={handleSortClick}
+                  />
+                  <SummarySortTh
+                    column="document"
+                    label="Document"
+                    sortColumn={sortColumn}
+                    sortDir={sortDir}
+                    onSort={handleSortClick}
+                  />
+                  <SummarySortTh
+                    column="analysis"
+                    label="Analysis type"
+                    sortColumn={sortColumn}
+                    sortDir={sortDir}
+                    onSort={handleSortClick}
+                  />
+                  <SummarySortTh
+                    column="phi"
+                    label="PHI"
+                    sortColumn={sortColumn}
+                    sortDir={sortDir}
+                    onSort={handleSortClick}
+                  />
+                  <th scope="col" className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">

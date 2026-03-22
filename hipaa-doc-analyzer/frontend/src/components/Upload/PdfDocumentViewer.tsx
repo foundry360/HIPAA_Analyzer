@@ -12,9 +12,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min
 type Props = {
   /** Blob URL or any URL the PDF.js worker can fetch */
   fileUrl: string;
+  /** When true, pages are centered in the viewing area (e.g. PDF-only full-width layout). */
+  centerPages?: boolean;
 };
 
-export function PdfDocumentViewer({ fileUrl }: Props) {
+export function PdfDocumentViewer({ fileUrl, centerPages = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pageWidth, setPageWidth] = useState(720);
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -39,7 +41,9 @@ export function PdfDocumentViewer({ fileUrl }: Props) {
   return (
     <div
       ref={containerRef}
-      className="pdf-viewer min-h-0 w-full overflow-auto bg-white px-0 pb-2 pt-0"
+      className={`pdf-viewer min-h-0 w-full overflow-auto bg-white px-0 pb-2 pt-0 ${
+        centerPages ? 'flex flex-col items-center' : ''
+      }`}
     >
       <Document
         file={fileUrl}
@@ -52,7 +56,7 @@ export function PdfDocumentViewer({ fileUrl }: Props) {
             Could not display this PDF. Try downloading the file or use a different browser.
           </div>
         }
-        className="flex flex-col items-stretch gap-10"
+        className={`flex flex-col gap-10 ${centerPages ? 'items-center' : 'items-stretch'}`}
       >
         {numPages !== null &&
           Array.from({ length: numPages }, (_, i) => (
