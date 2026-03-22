@@ -1,4 +1,5 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { getApiBaseUrl } from '../config/apiBase';
 
 export type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
@@ -9,18 +10,12 @@ async function authHeaders(): Promise<{ Authorization: string }> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function apiBase(): string {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  if (!base) throw new Error('API URL not configured');
-  return base;
-}
-
 export async function postDocumentChat(body: {
   documentId: string;
   fileName: string;
   messages: ChatTurn[];
 }): Promise<{ reply: string }> {
-  const res = await fetch(`${apiBase()}/document-chat`, {
+  const res = await fetch(`${getApiBaseUrl()}/document-chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,0 +1,8 @@
+{
+  "name": "report-summary",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix hipaa-doc-analyzer/frontend",
+    "build": "npm run build --prefix hipaa-doc-analyzer/frontend"
+  }
+}

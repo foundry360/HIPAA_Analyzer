@@ -5,7 +5,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "cdk": "cdk",
-    "deploy:frontend": "cd ../frontend && npm run build && cd ../infrastructure && npx cdk deploy --require-approval never"
+    "deploy:frontend": "node scripts/require-db-password.mjs && cd ../frontend && npm run build && cd ../infrastructure && npx cdk deploy --require-approval never"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.100.0",

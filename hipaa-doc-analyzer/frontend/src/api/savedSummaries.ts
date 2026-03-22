@@ -1,5 +1,6 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 import type { AnalyzeResponse, SavedSummaryItem, SharedWithMeItem } from '../types';
+import { getApiBaseUrl } from '../config/apiBase';
 
 async function authHeaders(): Promise<{ Authorization: string }> {
   const session = await fetchAuthSession();
@@ -8,17 +9,11 @@ async function authHeaders(): Promise<{ Authorization: string }> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function apiBase(): string {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  if (!base) throw new Error('API URL not configured');
-  return base;
-}
-
 export async function fetchSavedSummaries(): Promise<{
   items: SavedSummaryItem[];
   sharedWithMe: SharedWithMeItem[];
 }> {
-  const res = await fetch(`${apiBase()}/saved-summaries`, {
+  const res = await fetch(`${getApiBaseUrl()}/saved-summaries`, {
     headers: { ...await authHeaders() }
   });
   if (!res.ok) {
@@ -42,7 +37,7 @@ export async function fetchSavedSummaries(): Promise<{
 }
 
 export async function saveSummaryToHistory(result: AnalyzeResponse, fileName: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/saved-summaries`, {
+  const res = await fetch(`${getApiBaseUrl()}/saved-summaries`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -74,7 +69,7 @@ export async function renameSavedSummary(documentId: string, fileName: string): 
   const trimmed = fileName.trim();
   if (!trimmed) throw new Error('Name is required');
   /** POST (not PATCH) to same URL as save — same CORS preflight; avoids "Failed to fetch" when sub-routes aren’t deployed. */
-  const res = await fetch(`${apiBase()}/saved-summaries`, {
+  const res = await fetch(`${getApiBaseUrl()}/saved-summaries`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -95,7 +90,7 @@ export async function renameSavedSummary(documentId: string, fileName: string): 
 }
 
 export async function deleteSavedSummary(documentId: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/saved-summaries`, {
+  const res = await fetch(`${getApiBaseUrl()}/saved-summaries`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

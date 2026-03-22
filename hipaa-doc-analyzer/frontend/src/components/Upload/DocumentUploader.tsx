@@ -296,7 +296,9 @@ export function DocumentUploader() {
                   <p className="text-base font-medium text-blue-600">Drop the document here…</p>
                 ) : (
                   <>
-                    <p className="text-base font-medium text-slate-700 sm:text-lg">Drop a clinical document here</p>
+                    <p className="text-base font-medium text-slate-700 sm:text-lg">
+                      Drag and drop a clinical document here
+                    </p>
                     <p className="mt-1.5 text-sm text-slate-500">or click to browse — PDF, JPG, PNG up to 10MB</p>
                   </>
                 )}

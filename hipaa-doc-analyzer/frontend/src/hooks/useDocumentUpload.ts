@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { getApiBaseUrl } from '../config/apiBase';
 import type { AnalysisType, AnalyzeResponse } from '../types';
 
 const POLL_INTERVAL_MS = 2000;
@@ -85,8 +86,7 @@ export function useDocumentUpload() {
       const token = session.tokens?.idToken?.toString();
       if (!token) throw new Error('Not authenticated');
 
-      const apiBase = import.meta.env.VITE_API_BASE_URL;
-      if (!apiBase) throw new Error('API URL not configured');
+      const apiBase = getApiBaseUrl();
 
       setIsUploading(true);
       const urlResponse = await fetch(`${apiBase}/upload-url`, {
@@ -147,8 +147,7 @@ export function useDocumentUpload() {
       const token = session.tokens?.idToken?.toString();
       if (!token) throw new Error('Not authenticated');
 
-      const apiBase = import.meta.env.VITE_API_BASE_URL;
-      if (!apiBase) throw new Error('API URL not configured');
+      const apiBase = getApiBaseUrl();
 
       if (!activeDocumentId || !activeS3Key) {
         throw new Error('No document loaded. Upload a file first.');

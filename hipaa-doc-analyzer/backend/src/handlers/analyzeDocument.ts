@@ -21,6 +21,7 @@ import {
   AnalysisType
 } from '../types';
 import { hasRequiredAnalyzeFields, isValidAnalysisType } from '../utils/validators';
+import { userFacingAnalysisError } from '../utils/analysisErrors';
 import { CORS_HEADERS } from '../utils/cors';
 
 const lambda = new LambdaClient({ region: process.env.AWS_REGION });
@@ -142,8 +143,7 @@ async function runAnalysisPipeline(
     console.error(`[${documentId}] Pipeline error:`, err?.message ?? error);
     console.error(`[${documentId}] Stack:`, err?.stack);
 
-    const safeMessage =
-      'Analysis failed. Please try again or use a smaller document.';
+    const safeMessage = userFacingAnalysisError(error);
 
     await updateAnalysisFailed(documentId, userId, safeMessage).catch(
       console.error

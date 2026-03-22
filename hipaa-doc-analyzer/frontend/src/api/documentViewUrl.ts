@@ -1,12 +1,12 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { getApiBaseUrl } from '../config/apiBase';
 
 export async function getDocumentViewUrl(documentId: string, fileName: string): Promise<string> {
   const session = await fetchAuthSession();
   const token = session.tokens?.idToken?.toString();
   if (!token) throw new Error('Not authenticated');
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL;
-  if (!apiBase) throw new Error('API URL not configured');
+  const apiBase = getApiBaseUrl();
 
   const q = new URLSearchParams({ fileName });
   const res = await fetch(

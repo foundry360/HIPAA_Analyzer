@@ -6,6 +6,9 @@ import { AnalysisType } from '../types';
 
 const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION });
 
+/** Keeps prompt + document within typical model context limits (chars ≪ token cap). */
+const MAX_DOCUMENT_CHARS_FOR_ANALYSIS = 180_000;
+
 const ANALYSIS_PROMPTS: Record<AnalysisType, string> = {
   GENERAL_SUMMARY: `Produce a comprehensive clinical summary. Cover chief complaint, key findings, diagnoses, medications, follow-up, and urgent findings as needed—each as its own ## section with narrative prose underneath (see global FORMAT rules).`,
 
@@ -23,6 +26,14 @@ export async function generateClinicalSummary(
   analysisType: AnalysisType
 ): Promise<string> {
   const analysisInstructions = ANALYSIS_PROMPTS[analysisType];
+
+  let doc = redactedText;
+  if (doc.length > MAX_DOCUMENT_CHARS_FOR_ANALYSIS) {
+    console.warn(
+      `[bedrock] Truncating document for analysis from ${doc.length} to ${MAX_DOCUMENT_CHARS_FOR_ANALYSIS} characters`
+    );
+    doc = doc.slice(0, MAX_DOCUMENT_CHARS_FOR_ANALYSIS);
+  }
 
   const prompt = `You are a clinical documentation specialist analyzing a de-identified medical document.
 
@@ -46,7 +57,7 @@ ANALYSIS REQUESTED:
 ${analysisInstructions}
 
 DOCUMENT:
-${redactedText}
+${doc}
 
 Write the clinical summary now. It must read as continuous narrative paragraphs under ## headings, with zero list markers or outline formatting.`;
 

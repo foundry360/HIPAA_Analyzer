@@ -265,6 +265,19 @@ export class MainStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30)
     });
 
+    const getRedactedPreviewFn = new lambdaNode.NodejsFunction(this, 'GetRedactedPreviewFn', {
+      entry: path.join(backendDir, 'src/handlers/getRedactedPreview.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256
+    });
+
     const sharesFn = new lambdaNode.NodejsFunction(this, 'SharesFn', {
       entry: path.join(backendDir, 'src/handlers/shares.ts'),
       handler: 'handler',
@@ -312,6 +325,21 @@ export class MainStack extends cdk.Stack {
     database.connections.allowFrom(runDbSetupFn, ec2.Port.tcp(5432));
     database.secret!.grantRead(runDbSetupFn);
 
+    /** Read-only DB inspection (invoke via CLI only; no API Gateway). */
+    const dbInspectFn = new lambdaNode.NodejsFunction(this, 'DbInspectFn', {
+      entry: path.join(backendDir, 'src/handlers/dbInspect.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: lambdaEnv,
+      vpc,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256
+    });
+    database.connections.allowFrom(dbInspectFn, ec2.Port.tcp(5432));
+
     // ── Grant Permissions ────────────────────────────────────────
     documentBucket.grantReadWrite(getUploadUrlFn);
     documentBucket.grantRead(analyzeDocumentFn);
@@ -327,6 +355,7 @@ export class MainStack extends cdk.Stack {
     database.connections.allowFrom(documentChatFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(savedSummariesFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getDocumentViewUrlFn, ec2.Port.tcp(5432));
+    database.connections.allowFrom(getRedactedPreviewFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(sharesFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(adminUsersFn, ec2.Port.tcp(5432));
 
@@ -479,6 +508,12 @@ export class MainStack extends cdk.Stack {
       lambdaIntegration(getDocumentViewUrlFn),
       authOptions
     );
+    const documentRedactedPreviewResource = documentIdForViewResource.addResource('redacted-preview');
+    documentRedactedPreviewResource.addMethod(
+      'GET',
+      lambdaIntegration(getRedactedPreviewFn),
+      authOptions
+    );
 
     const sharesResource = api.root.addResource('shares');
     sharesResource.addMethod('POST', lambdaIntegration(sharesFn), authOptions);
@@ -546,6 +581,11 @@ export class MainStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RunDbSetupFunctionName', {
       value: runDbSetupFn.functionName,
       description: 'Invoke once to create DB and schema: aws lambda invoke --function-name <value> --region us-east-1 out.json'
+    });
+    new cdk.CfnOutput(this, 'DbInspectFunctionName', {
+      value: dbInspectFn.functionName,
+      description:
+        'VPC read-only DB helper (CLI invoke only): aws lambda invoke --function-name <value> --cli-binary-format raw-in-base64-out --payload \'{"action":"listAnalysis"}\' out.json'
     });
   }
 }

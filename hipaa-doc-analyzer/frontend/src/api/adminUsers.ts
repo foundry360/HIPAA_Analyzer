@@ -1,4 +1,5 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { getApiBaseUrl } from '../config/apiBase';
 
 async function authHeaders(): Promise<{ Authorization: string }> {
   const session = await fetchAuthSession();
@@ -7,14 +8,8 @@ async function authHeaders(): Promise<{ Authorization: string }> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function apiBase(): string {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  if (!base) throw new Error('API URL not configured');
-  return base;
-}
-
 export async function fetchAdminMe(): Promise<{ admin: boolean }> {
-  const res = await fetch(`${apiBase()}/admin/me`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/me`, {
     headers: { ...(await authHeaders()) }
   });
   if (!res.ok) {
@@ -50,7 +45,7 @@ export interface AdminRoster {
 }
 
 export async function fetchAdminRoster(): Promise<AdminRoster> {
-  const res = await fetch(`${apiBase()}/admin/admins`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/admins`, {
     headers: { ...(await authHeaders()) }
   });
   const t = await res.text();
@@ -67,7 +62,7 @@ export async function fetchAdminRoster(): Promise<AdminRoster> {
 }
 
 export async function grantDelegatedAdmin(email: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/admin/admins`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/admins`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -88,7 +83,7 @@ export async function grantDelegatedAdmin(email: string): Promise<void> {
 }
 
 export async function revokeDelegatedAdmin(sub: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/admin/admins/${encodeURIComponent(sub)}`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/admins/${encodeURIComponent(sub)}`, {
     method: 'DELETE',
     headers: { ...(await authHeaders()) }
   });
@@ -105,7 +100,7 @@ export async function revokeDelegatedAdmin(sub: string): Promise<void> {
 }
 
 export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
-  const res = await fetch(`${apiBase()}/admin/users`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/users`, {
     headers: { ...(await authHeaders()) }
   });
   const t = await res.text();
@@ -126,7 +121,7 @@ export async function createAdminUser(
   email: string,
   options?: { makeAdmin?: boolean }
 ): Promise<{ message?: string }> {
-  const res = await fetch(`${apiBase()}/admin/users`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/users`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -155,7 +150,7 @@ export async function createAdminUser(
 }
 
 export async function deleteAdminUser(username: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/admin/users/${encodeURIComponent(username)}`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/users/${encodeURIComponent(username)}`, {
     method: 'DELETE',
     headers: { ...(await authHeaders()) }
   });
@@ -172,7 +167,7 @@ export async function deleteAdminUser(username: string): Promise<void> {
 }
 
 export async function setAdminUserEnabled(username: string, enabled: boolean): Promise<void> {
-  const res = await fetch(`${apiBase()}/admin/users/${encodeURIComponent(username)}`, {
+  const res = await fetch(`${getApiBaseUrl()}/admin/users/${encodeURIComponent(username)}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',

@@ -1,16 +1,11 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { getApiBaseUrl } from '../config/apiBase';
 
 async function authHeaders(): Promise<{ Authorization: string }> {
   const session = await fetchAuthSession();
   const token = session.tokens?.idToken?.toString();
   if (!token) throw new Error('Not authenticated');
   return { Authorization: `Bearer ${token}` };
-}
-
-function apiBase(): string {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  if (!base) throw new Error('API URL not configured');
-  return base;
 }
 
 export interface DocumentShareRow {
@@ -30,7 +25,7 @@ export async function searchUsersForShare(query: string): Promise<UserSearchHit[
   const q = query.trim();
   if (q.length < 2) return [];
   const res = await fetch(
-    `${apiBase()}/shares/user-search?q=${encodeURIComponent(q)}`,
+    `${getApiBaseUrl()}/shares/user-search?q=${encodeURIComponent(q)}`,
     {
       headers: { ...(await authHeaders()) }
     }
@@ -51,7 +46,7 @@ export async function searchUsersForShare(query: string): Promise<UserSearchHit[
 
 export async function fetchSharesForDocument(documentId: string): Promise<DocumentShareRow[]> {
   const q = new URLSearchParams({ documentId });
-  const res = await fetch(`${apiBase()}/shares?${q}`, {
+  const res = await fetch(`${getApiBaseUrl()}/shares?${q}`, {
     headers: { ...(await authHeaders()) }
   });
   if (!res.ok) {
@@ -73,7 +68,7 @@ export async function createDocumentShare(params: {
   email: string;
   fileName: string;
 }): Promise<DocumentShareRow> {
-  const res = await fetch(`${apiBase()}/shares`, {
+  const res = await fetch(`${getApiBaseUrl()}/shares`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -100,7 +95,7 @@ export async function createDocumentShare(params: {
 }
 
 export async function revokeDocumentShare(shareId: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/shares/${encodeURIComponent(shareId)}`, {
+  const res = await fetch(`${getApiBaseUrl()}/shares/${encodeURIComponent(shareId)}`, {
     method: 'DELETE',
     headers: { ...(await authHeaders()) }
   });

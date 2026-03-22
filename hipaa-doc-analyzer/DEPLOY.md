@@ -36,12 +36,13 @@ npx cdk bootstrap aws://YOUR_ACCOUNT_ID/us-east-1   # once per account/region
 npx cdk deploy
 ```
 
-- **DB password:** Set via context or env so Lambdas can connect to RDS:
-  - `cdk deploy -c dbPassword=YOUR_SECURE_PASSWORD`, or
-  - `export DB_PASSWORD=...` before `cdk deploy`
-  - For production, use AWS Secrets Manager and pass the secret ARN (backend would need to resolve it at runtime).
+- **DB password (required):** Lambdas use `DB_USER=analyzer_user` and `DB_PASSWORD` from CDK. Set **one** of:
+  - `export DB_PASSWORD=YOUR_SECURE_PASSWORD` then `cdk deploy` (recommended for `npm run deploy:frontend`), or
+  - `cdk deploy -c dbPassword=YOUR_SECURE_PASSWORD`
+- **Same password everywhere:** The value must match the password RunDbSetup applies to `analyzer_user` in Postgres. If they drift, you get **“Database login failed for analyzer_user”** (HTTP 503 on saved-summaries, etc.). Fix: deploy again with the intended `DB_PASSWORD`, then **invoke RunDbSetup once** (see §3).
+- For production, consider storing the app user password in Secrets Manager and wiring Lambdas to read it at runtime (today the stack passes plain env at deploy time).
 
-After deploy, note the outputs: **APIUrl**, **UserPoolId**, **UserPoolClientId**, **BucketName**.
+After deploy, note the outputs: **APIUrl**, **UserPoolId**, **UserPoolClientId**, **BucketName**, **RunDbSetupFunctionName**.
 
 **When stack is CREATE_COMPLETE**, get outputs:
 
@@ -49,34 +50,31 @@ After deploy, note the outputs: **APIUrl**, **UserPoolId**, **UserPoolClientId**
 aws cloudformation describe-stacks --stack-name HipaaDocAnalyzerStack --query 'Stacks[0].Outputs' --output table
 ```
 
-## 3. Database setup
+## 3. Database setup (RunDbSetup — recommended)
 
-1. **RDS endpoint:** AWS Console → RDS → Databases → your instance (e.g. `AuditDatabase...`) → copy **Endpoint**.
-2. **Master password:** AWS Console → Secrets Manager → find the secret for the RDS instance (name contains the instance id) → Retrieve secret value; note **username** (often `postgres` or admin) and **password**.
-3. **Allow your IP (temporary):** RDS → your instance → under **Security**, open the **VPC security group** → Edit inbound rules → Add: Type **PostgreSQL**, Port **5432**, Source **My IP** → Save.
-4. **Create DB and app user** (password = same as you passed to `cdk deploy -c dbPassword=...`, e.g. `HipaaAnalyzerDev123!`):
+Lambdas cannot reach RDS from your laptop; the stack includes **RunDbSetupFn**, which runs in the VPC, creates `hipaa_analyzer` and `analyzer_user`, and applies schema. It uses **the same `DB_PASSWORD`** you passed at CDK deploy time.
 
-```bash
-psql -h YOUR_RDS_ENDPOINT -U postgres -d postgres
-```
-
-In `psql`:
-
-```sql
-CREATE DATABASE hipaa_analyzer;
-\c hipaa_analyzer
-CREATE USER analyzer_user WITH PASSWORD 'HipaaAnalyzerDev123!';
-GRANT ALL PRIVILEGES ON DATABASE hipaa_analyzer TO analyzer_user;
-\c hipaa_analyzer analyzer_user
-```
-
-Then exit (`\q`) and run the schema from your machine:
+**After each deploy** where you introduced a **new** database or **changed** `DB_PASSWORD`, invoke it once:
 
 ```bash
-psql -h YOUR_RDS_ENDPOINT -U analyzer_user -d hipaa_analyzer -f backend/schema.sql
+# Name from CloudFormation output RunDbSetupFunctionName, or:
+aws lambda list-functions --region YOUR_REGION --query "Functions[?contains(FunctionName, 'RunDbSetup')].FunctionName" --output text
+
+aws lambda invoke --function-name "PASTE_RunDbSetup_FUNCTION_NAME" --region YOUR_REGION --cli-binary-format raw-in-base64-out /tmp/db-setup-out.json
+cat /tmp/db-setup-out.json
 ```
 
-(Optional: remove the "My IP" rule from the RDS security group when done.)
+Expect a JSON body with success; check CloudWatch logs if it fails.
+
+**If you see “Database login failed for analyzer_user” in the app:** Postgres still has an old password for `analyzer_user`, or RunDbSetup never ran. Align by:
+
+1. `export DB_PASSWORD='the-password-you-want'` (must be non-empty)
+2. `cd infrastructure && npx cdk deploy` (or `npm run deploy:frontend`)
+3. Invoke **RunDbSetup** again (it runs `ALTER USER analyzer_user` when the user already exists).
+
+### Alternative: manual `psql` from your machine
+
+Only if you open the RDS security group to your IP. Use the **same** password as `DB_PASSWORD` / `dbPassword` for `analyzer_user`. See `backend/DATABASE-SETUP.md` and `backend/schema.sql`.
 
 ## 4. API endpoints
 
