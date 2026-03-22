@@ -26,3 +26,25 @@ export function parseOpenKey(key: string): { kind: 'saved' | 'shared'; id: strin
   if (!id) return null;
   return { kind: kind as 'saved' | 'shared', id };
 }
+
+/** Outgoing share count from API (number or serialized string). */
+export function savedShareCount(data: SavedSummaryItem): number {
+  const n: unknown = data.share_count;
+  if (typeof n === 'number' && Number.isFinite(n)) return n;
+  if (typeof n === 'string' && n.trim() !== '') {
+    const p = parseInt(n, 10);
+    return Number.isFinite(p) ? p : 0;
+  }
+  return 0;
+}
+
+/** Show user icon for incoming shares or saved rows the owner has shared. */
+export function showSharedUserIcon(row: HistoryTableRow): boolean {
+  if (row.kind === 'shared') return true;
+  return savedShareCount(row.data) > 0;
+}
+
+export function sharedUserIconTitle(row: HistoryTableRow): string {
+  if (row.kind === 'shared') return 'Shared with you';
+  return 'This summary has been shared';
+}

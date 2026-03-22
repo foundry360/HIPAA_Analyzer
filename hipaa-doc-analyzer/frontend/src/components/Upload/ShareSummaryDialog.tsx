@@ -24,12 +24,15 @@ export function ShareSummaryDialog({
   open,
   onClose,
   documentId,
-  fileName
+  fileName,
+  onSharesChanged
 }: {
   open: boolean;
   onClose: () => void;
   documentId: string;
   fileName: string;
+  /** Called after a share is created or revoked so lists can refresh (e.g. share_count). */
+  onSharesChanged?: () => void;
 }) {
   const [email, setEmail] = useState('');
   const [shares, setShares] = useState<DocumentShareRow[]>([]);
@@ -119,6 +122,7 @@ export function ShareSummaryDialog({
       setSuggestions([]);
       setSuggestOpen(false);
       await loadShares();
+      onSharesChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Share failed');
     } finally {
@@ -132,6 +136,7 @@ export function ShareSummaryDialog({
     try {
       await revokeDocumentShare(shareId);
       await loadShares();
+      onSharesChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove access');
     } finally {

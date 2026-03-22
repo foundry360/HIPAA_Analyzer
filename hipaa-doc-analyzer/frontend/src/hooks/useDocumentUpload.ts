@@ -169,5 +169,13 @@ export function useDocumentUpload() {
     }
   }, [activeDocumentId, activeS3Key]);
 
-  return { upload, reanalyze, isUploading, isAnalyzing, result, error };
+  /** Load a completed analysis from Summaries (split view). S3 key is unknown — re-run analysis is disabled until a new upload. */
+  const applySavedSummary = useCallback((data: AnalyzeResponse) => {
+    setError(null);
+    setResult(data);
+    setActiveDocumentId(data.documentId);
+    setActiveS3Key(null);
+  }, []);
+
+  return { upload, reanalyze, isUploading, isAnalyzing, result, error, applySavedSummary };
 }

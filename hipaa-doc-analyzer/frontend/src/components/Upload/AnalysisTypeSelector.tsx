@@ -75,9 +75,9 @@ export function AnalysisTypeSelector({
                 onClick={() => onChange(t)}
                 className={[
                   'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-                  'bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2',
+                  'bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
                   selected
-                    ? 'border-blue-400 text-blue-600 shadow-sm'
+                    ? 'border-blue-500 text-blue-500 shadow-sm'
                     : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700'
                 ].join(' ')}
               >

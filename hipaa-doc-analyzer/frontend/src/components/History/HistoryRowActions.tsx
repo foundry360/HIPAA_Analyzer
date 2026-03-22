@@ -8,6 +8,7 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   canMutate: boolean;
   onView: () => void;
+  onOpenDocument: () => void;
   onShare: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -19,6 +20,7 @@ export function HistoryRowActions({
   onOpenChange,
   canMutate,
   onView,
+  onOpenDocument,
   onShare,
   onRename,
   onDelete
@@ -81,7 +83,18 @@ export function HistoryRowActions({
           onOpenChange(false);
         }}
       >
-        View
+        View Summary
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"
+        onClick={() => {
+          onOpenDocument();
+          onOpenChange(false);
+        }}
+      >
+        Open Document
       </button>
       <button
         type="button"

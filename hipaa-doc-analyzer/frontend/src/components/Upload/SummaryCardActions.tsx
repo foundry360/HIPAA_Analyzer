@@ -80,7 +80,7 @@ export function SummaryCardActions({
         className={[
           'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors',
           saveStatus === 'saved'
-            ? 'border-blue-300 bg-blue-50/80 text-blue-600'
+            ? 'border-blue-500/40 bg-blue-50/80 text-blue-500'
             : saveStatus === 'error'
               ? 'border-amber-400 bg-amber-50/80 text-amber-800 hover:bg-amber-100'
               : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700',

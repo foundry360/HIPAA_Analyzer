@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, User, X } from 'lucide-react';
-import { getDocumentViewUrl } from '../api/documentViewUrl';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Download, Loader2, Waypoints, X } from 'lucide-react';
 import {
   deleteSavedSummary,
   fetchSavedSummaries,
@@ -11,9 +10,20 @@ import { HistoryRowActions } from '../components/History/HistoryRowActions';
 import { ClinicalSummaryMarkdown } from '../components/Upload/ClinicalSummaryMarkdown';
 import { ShareSummaryDialog } from '../components/Upload/ShareSummaryDialog';
 import { ANALYSIS_TYPE_LABELS } from '../components/Upload/AnalysisTypeSelector';
-import type { AnalysisType, HistoryTableRow, SavedSummaryItem, SharedWithMeItem } from '../types';
+import type {
+  AnalysisType,
+  HistoryTableRow,
+  SavedSummaryItem,
+  SharedWithMeItem,
+  SplitFromHistoryState
+} from '../types';
 import { downloadSummaryPdf } from '../utils/downloadSummaryPdf';
-import { mergeHistoryRows, parseOpenKey } from '../utils/historyRows';
+import {
+  mergeHistoryRows,
+  parseOpenKey,
+  sharedUserIconTitle,
+  showSharedUserIcon
+} from '../utils/historyRows';
 
 function analysisTypeLabel(t: string): string {
   return ANALYSIS_TYPE_LABELS[t as AnalysisType] ?? t;
@@ -40,18 +50,21 @@ function formatSavedAt(iso: string): string {
   }
 }
 
-/** Incoming share to you, or your summary that has been shared with at least one other user. */
-function showSharedUserIcon(row: HistoryTableRow): boolean {
-  if (row.kind === 'shared') return true;
-  return (row.data.share_count ?? 0) > 0;
-}
-
-function sharedUserIconTitle(row: HistoryTableRow): string {
-  if (row.kind === 'shared') return 'Shared with you';
-  return 'This summary has been shared';
+function rowToSplitState(row: HistoryTableRow): SplitFromHistoryState {
+  const d = row.data;
+  return {
+    documentId: d.document_id,
+    fileName: d.file_name,
+    summary: d.summary,
+    analysisType: d.analysis_type,
+    phiDetected: d.phi_detected,
+    entitiesRedacted: d.entities_redacted,
+    modelUsed: d.model_used ?? 'unknown'
+  };
 }
 
 export function HistoryPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<SavedSummaryItem[]>([]);
   const [sharedWithMe, setSharedWithMe] = useState<SharedWithMeItem[]>([]);
@@ -61,8 +74,6 @@ export function HistoryPage() {
   const [pdfDownloadBusy, setPdfDownloadBusy] = useState(false);
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState(1);
-  const [openingDocId, setOpeningDocId] = useState<string | null>(null);
-  const [docOpenError, setDocOpenError] = useState<string | null>(null);
   const [actionsMenuKey, setActionsMenuKey] = useState<string | null>(null);
   const [renameRow, setRenameRow] = useState<HistoryTableRow | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -85,19 +96,12 @@ export function HistoryPage() {
     return mergedRows.filter((r) => r.kind === 'shared');
   }, [mergedRows, filterTab]);
 
-  const handleOpenDocument = useCallback(async (row: HistoryTableRow) => {
-    setDocOpenError(null);
-    const key = row.kind === 'saved' ? row.data.id : row.data.share_id;
-    setOpeningDocId(key);
-    try {
-      const url = await getDocumentViewUrl(row.data.document_id, row.data.file_name);
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      setDocOpenError(e instanceof Error ? e.message : 'Could not open document');
-    } finally {
-      setOpeningDocId(null);
-    }
-  }, []);
+  const openDocumentInSplitView = useCallback(
+    (row: HistoryTableRow) => {
+      navigate('/', { state: { splitFromHistory: rowToSplitState(row) } });
+    },
+    [navigate]
+  );
 
   const { paginatedItems, totalPages, startIdx, endIdx, effectivePage } = useMemo(() => {
     const total = filteredRows.length;
@@ -248,11 +252,6 @@ export function HistoryPage() {
         <p className="mt-1 text-sm text-slate-500">
           Your saved summaries and analyses others shared with you appear here.
         </p>
-        {docOpenError && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-            {docOpenError}
-          </div>
-        )}
       </div>
 
       <div className="mt-6 min-h-0 flex-1 overflow-auto">
@@ -331,28 +330,34 @@ export function HistoryPage() {
                     </td>
                     <td className="max-w-xl min-w-[12rem] px-4 py-3">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        {showSharedUserIcon(row) && (
-                          <span
-                            className="inline-flex shrink-0 text-indigo-600"
-                            title={sharedUserIconTitle(row)}
-                            aria-label={sharedUserIconTitle(row)}
-                          >
-                            <User className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="min-w-0 truncate font-medium text-slate-900" title={d.file_name}>
+                            {d.file_name}
                           </span>
-                        )}
-                        <span className="min-w-0 truncate font-medium text-slate-900" title={d.file_name}>
-                          {d.file_name}
+                          {showSharedUserIcon(row) &&
+                            (row.kind === 'saved' ? (
+                              <button
+                                type="button"
+                                className="inline-flex shrink-0 rounded p-0.5 text-blue-500 transition-colors hover:bg-blue-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-blue-400"
+                                title={`${sharedUserIconTitle(row)} — click to manage sharing`}
+                                aria-label="Manage sharing"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShareRow(row);
+                                }}
+                              >
+                                <Waypoints className="h-4 w-4" strokeWidth={2} aria-hidden />
+                              </button>
+                            ) : (
+                              <span
+                                className="inline-flex shrink-0 text-blue-500"
+                                title={sharedUserIconTitle(row)}
+                                aria-label={sharedUserIconTitle(row)}
+                              >
+                                <Waypoints className="h-4 w-4" strokeWidth={2} aria-hidden />
+                              </span>
+                            ))}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => void handleOpenDocument(row)}
-                          disabled={openingDocId === rowKey}
-                          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Open original document in a new tab"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                          {openingDocId === rowKey ? 'Opening…' : 'Open'}
-                        </button>
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">{analysisTypeLabel(d.analysis_type)}</td>
@@ -372,9 +377,9 @@ export function HistoryPage() {
                         onOpenChange={(open) => setActionsMenuKey(open ? rowKey : null)}
                         canMutate={row.kind === 'saved'}
                         onView={() => {
-                          setDocOpenError(null);
                           setSelected(row);
                         }}
+                        onOpenDocument={() => openDocumentInSplitView(row)}
                         onShare={() => {
                           if (row.kind !== 'saved') return;
                           setShareRow(row);
@@ -455,6 +460,7 @@ export function HistoryPage() {
           onClose={() => setShareRow(null)}
           documentId={shareRow.data.document_id}
           fileName={shareRow.data.file_name}
+          onSharesChanged={load}
         />
       )}
 
@@ -584,16 +590,30 @@ export function HistoryPage() {
                   id="summary-dialog-title"
                   className="flex min-w-0 items-center gap-2 truncate font-semibold text-slate-900"
                 >
-                  {showSharedUserIcon(selected) && (
-                    <span
-                      className="inline-flex shrink-0 text-indigo-600"
-                      title={sharedUserIconTitle(selected)}
-                      aria-hidden
-                    >
-                      <User className="h-5 w-5 shrink-0" strokeWidth={2} />
-                    </span>
-                  )}
                   <span className="min-w-0 truncate">{selected.data.file_name}</span>
+                  {showSharedUserIcon(selected) &&
+                    (selected.kind === 'saved' ? (
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 rounded p-0.5 text-blue-500 transition-colors hover:bg-blue-50 focus-visible:outline focus-visible:ring-2 focus-visible:ring-blue-400"
+                        title={`${sharedUserIconTitle(selected)} — click to manage sharing`}
+                        aria-label="Manage sharing"
+                        onClick={() => {
+                          setShareRow(selected);
+                          setSelected(null);
+                        }}
+                      >
+                        <Waypoints className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                      </button>
+                    ) : (
+                      <span
+                        className="inline-flex shrink-0 text-blue-500"
+                        title={sharedUserIconTitle(selected)}
+                        aria-hidden
+                      >
+                        <Waypoints className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                      </span>
+                    ))}
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-500">
                   {analysisTypeLabel(selected.data.analysis_type)} ·{' '}
@@ -603,10 +623,10 @@ export function HistoryPage() {
                       : selected.data.shared_at
                   )}
                   {selected.kind === 'shared' && (
-                    <span className="ml-1.5 text-indigo-600">· Shared with you</span>
+                    <span className="ml-1.5 text-blue-500">· Shared with you</span>
                   )}
                   {selected.kind === 'saved' && (selected.data.share_count ?? 0) > 0 && (
-                    <span className="ml-1.5 text-indigo-600">· Shared with others</span>
+                    <span className="ml-1.5 text-blue-500">· Shared with others</span>
                   )}
                 </p>
               </div>

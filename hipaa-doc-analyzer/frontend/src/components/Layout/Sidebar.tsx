@@ -1,27 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import {
+  ClipboardPlus,
   FileText,
   PanelLeft,
   PanelRight,
-  Plus,
   Search,
   Users,
   type LucideIcon
 } from 'lucide-react';
+import { fetchSavedSummaries } from '../../api/savedSummaries';
 import { useAdmin } from '../../context/AdminContext';
+import type { HistoryTableRow } from '../../types';
+import { mergeHistoryRows, rowKey } from '../../utils/historyRows';
 import { GlobalSearchModal } from './GlobalSearchModal';
 
 const STORAGE_KEY = 'hipaa-sidebar-collapsed';
 
 const baseNav: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
-  { to: '/', label: 'New Summary', icon: Plus, end: true },
+  { to: '/', label: 'Create Summary', icon: ClipboardPlus, end: true },
   { to: '/history', label: 'Summaries', icon: FileText }
 ];
 
 export function Sidebar() {
   const { admin } = useAdmin();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [recentRows, setRecentRows] = useState<HistoryTableRow[]>([]);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === '1';
@@ -47,6 +51,23 @@ export function Sidebar() {
     }
     return items;
   }, [admin]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { items, sharedWithMe } = await fetchSavedSummaries();
+        if (cancelled) return;
+        const merged = mergeHistoryRows(items, sharedWithMe);
+        setRecentRows(merged.slice(0, 15));
+      } catch {
+        if (!cancelled) setRecentRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -93,53 +114,78 @@ export function Sidebar() {
         </div>
       )}
 
-      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2" aria-label="Main">
-        {nav.map(({ to, label, icon: Icon, end }, index) => (
-          <div key={to} className="contents">
-            <NavLink
-              to={to}
-              end={end ?? false}
-              title={label}
-              aria-label={label}
-              className={({ isActive }) =>
-                [
-                  'flex items-center gap-2.5 rounded-lg py-2.5 text-sm font-medium transition-colors',
-                  collapsed ? 'justify-center px-2' : 'px-3',
-                  isActive
-                    ? 'bg-blue-50 text-blue-500'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                ].join(' ')
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {index === 0 ? (
-                    <span
-                      className={[
-                        'inline-flex shrink-0 rounded-md border p-0.5 text-current',
-                        isActive
-                          ? 'border-blue-500 bg-white'
-                          : 'border-blue-200 bg-blue-50'
-                      ].join(' ')}
-                    >
-                      <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-                    </span>
-                  ) : (
-                    <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} aria-hidden />
-                  )}
-                  {!collapsed && <span>{label}</span>}
-                </>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <nav className="shrink-0 space-y-0.5 p-2" aria-label="Main">
+          {nav.map(({ to, label, icon: Icon, end }, index) => (
+            <div key={to} className="contents">
+              <NavLink
+                to={to}
+                end={end ?? false}
+                title={label}
+                aria-label={label}
+                className={({ isActive }) =>
+                  [
+                    'flex items-center gap-2.5 rounded-lg py-2.5 text-sm font-medium transition-colors',
+                    collapsed ? 'justify-center px-2' : 'px-3',
+                    isActive
+                      ? 'bg-blue-50 text-blue-500'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  ].join(' ')
+                }
+              >
+                <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} aria-hidden />
+                {!collapsed && <span>{label}</span>}
+              </NavLink>
+              {index === 0 && (
+                <div
+                  className="mx-1 my-1.5 border-b border-slate-200"
+                  aria-hidden="true"
+                />
               )}
-            </NavLink>
-            {index === 0 && (
-              <div
-                className="mx-1 my-1.5 border-b border-slate-200"
-                aria-hidden="true"
-              />
-            )}
-          </div>
-        ))}
-      </nav>
+            </div>
+          ))}
+        </nav>
+
+        {!collapsed && (
+          <>
+            <div className="mx-2 border-b border-slate-200" aria-hidden="true" />
+            <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2 pb-2 pt-3">
+              <h2 className="shrink-0 px-1 text-xs font-semibold tracking-wide text-slate-500">
+                Your Recent Summaries
+              </h2>
+              <ul
+                className="min-h-0 flex-1 space-y-0.5 overflow-y-auto"
+                aria-label="Your recent summaries"
+              >
+                {recentRows.length === 0 ? (
+                  <li className="px-1 text-xs text-slate-400">No summaries yet</li>
+                ) : (
+                  recentRows.map((row) => {
+                    const name = row.data.file_name;
+                    const open = encodeURIComponent(rowKey(row));
+                    return (
+                      <li key={rowKey(row)}>
+                        <Link
+                          to={`/history?open=${open}`}
+                          title={name}
+                          className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                        >
+                          <FileText
+                            className="h-4 w-4 shrink-0 text-slate-400"
+                            strokeWidth={1.75}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 truncate">{name}</span>
+                        </Link>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </section>
+          </>
+        )}
+      </div>
 
       <div className="shrink-0 border-t border-slate-200 p-2">
         <button

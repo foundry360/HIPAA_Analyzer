@@ -66,29 +66,57 @@ export async function upsertSavedSummary(params: {
   );
 }
 
+const LIST_SAVED_WITH_SHARES = `
+  SELECT ss.id::text,
+         ss.document_id::text,
+         ss.file_name,
+         ss.analysis_type,
+         ss.summary,
+         ss.phi_detected,
+         ss.entities_redacted,
+         ss.model_used,
+         ss.saved_at::text,
+         COALESCE(cnt.share_count, 0) AS share_count
+  FROM saved_summaries ss
+  LEFT JOIN (
+    SELECT document_id,
+           owner_user_id,
+           COUNT(*)::int AS share_count
+    FROM document_shares
+    GROUP BY document_id, owner_user_id
+  ) cnt ON cnt.document_id = ss.document_id AND cnt.owner_user_id = ss.user_id
+  WHERE ss.user_id = $1
+  ORDER BY ss.saved_at DESC
+`;
+
+const LIST_SAVED_NO_SHARES = `
+  SELECT ss.id::text,
+         ss.document_id::text,
+         ss.file_name,
+         ss.analysis_type,
+         ss.summary,
+         ss.phi_detected,
+         ss.entities_redacted,
+         ss.model_used,
+         ss.saved_at::text,
+         0 AS share_count
+  FROM saved_summaries ss
+  WHERE ss.user_id = $1
+  ORDER BY ss.saved_at DESC
+`;
+
 export async function listSavedSummaries(userId: string): Promise<SavedSummaryRow[]> {
-  const result = await pool.query(
-    `SELECT ss.id::text,
-            ss.document_id::text,
-            ss.file_name,
-            ss.analysis_type,
-            ss.summary,
-            ss.phi_detected,
-            ss.entities_redacted,
-            ss.model_used,
-            ss.saved_at::text,
-            COALESCE(
-              (SELECT COUNT(*)::int
-               FROM document_shares ds
-               WHERE ds.document_id = ss.document_id
-                 AND ds.owner_user_id = ss.user_id),
-              0
-            ) AS share_count
-     FROM saved_summaries ss
-     WHERE ss.user_id = $1
-     ORDER BY ss.saved_at DESC`,
-    [userId]
-  );
+  let result;
+  try {
+    result = await pool.query(LIST_SAVED_WITH_SHARES, [userId]);
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === '42P01') {
+      result = await pool.query(LIST_SAVED_NO_SHARES, [userId]);
+    } else {
+      throw e;
+    }
+  }
   return result.rows.map((r) => ({
     ...r,
     share_count: Number(r.share_count) || 0

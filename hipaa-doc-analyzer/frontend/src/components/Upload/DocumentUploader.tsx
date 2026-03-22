@@ -1,17 +1,41 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
+import { Loader2 } from 'lucide-react';
+import { getDocumentViewUrl } from '../../api/documentViewUrl';
 import { useDocumentUpload } from '../../hooks/useDocumentUpload';
 import { AnalysisTypeSelector } from './AnalysisTypeSelector';
 import { ClinicalSummaryMarkdown } from './ClinicalSummaryMarkdown';
 import { PdfDocumentViewer } from './PdfDocumentViewer';
 import { SummaryCardActions } from './SummaryCardActions';
-import type { AnalysisType } from '../../types';
+import type { AnalysisType, SplitFromHistoryState } from '../../types';
+
+const ANALYSIS_TYPES: AnalysisType[] = [
+  'GENERAL_SUMMARY',
+  'MEDICATIONS',
+  'DIAGNOSES',
+  'FOLLOW_UP_ACTIONS',
+  'CHIEF_COMPLAINT'
+];
+
+function toAnalysisType(value: string): AnalysisType {
+  return ANALYSIS_TYPES.includes(value as AnalysisType) ? (value as AnalysisType) : 'GENERAL_SUMMARY';
+}
 
 export function DocumentUploader() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const incomingSplit = (location.state as { splitFromHistory?: SplitFromHistoryState } | null)
+    ?.splitFromHistory;
   const [analysisType, setAnalysisType] = useState<AnalysisType>('GENERAL_SUMMARY');
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const { upload, reanalyze, isUploading, isAnalyzing, result, error } = useDocumentUpload();
+  const [remoteDocUrl, setRemoteDocUrl] = useState<string | null>(null);
+  const [remoteFileName, setRemoteFileName] = useState<string | null>(null);
+  const [historySplitLoading, setHistorySplitLoading] = useState(() => Boolean(incomingSplit));
+  const [historySplitError, setHistorySplitError] = useState<string | null>(null);
+  const { upload, reanalyze, isUploading, isAnalyzing, result, error, applySavedSummary } =
+    useDocumentUpload();
 
   useEffect(() => {
     if (!previewFile) {
@@ -19,15 +43,61 @@ export function DocumentUploader() {
       setPreviewUrl(null);
       return;
     }
+    setRemoteDocUrl(null);
+    setRemoteFileName(null);
     const url = URL.createObjectURL(previewFile);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [previewFile]);
 
+  useEffect(() => {
+    const raw = location.state as { splitFromHistory?: SplitFromHistoryState } | null;
+    const payload = raw?.splitFromHistory;
+    if (!payload) return;
+
+    let cancelled = false;
+    setHistorySplitError(null);
+    setHistorySplitLoading(true);
+
+    void (async () => {
+      try {
+        const url = await getDocumentViewUrl(payload.documentId, payload.fileName);
+        if (cancelled) return;
+        const at = toAnalysisType(payload.analysisType);
+        setAnalysisType(at);
+        applySavedSummary({
+          documentId: payload.documentId,
+          summary: payload.summary,
+          phiDetected: payload.phiDetected,
+          entitiesRedacted: payload.entitiesRedacted,
+          analysisType: at,
+          modelUsed: payload.modelUsed || 'unknown',
+          status: 'COMPLETE'
+        });
+        setRemoteDocUrl(url);
+        setRemoteFileName(payload.fileName);
+        navigate(location.pathname, { replace: true, state: {} });
+      } catch (e) {
+        if (!cancelled) {
+          setHistorySplitError(e instanceof Error ? e.message : 'Could not open document');
+          navigate(location.pathname, { replace: true, state: {} });
+        }
+      } finally {
+        if (!cancelled) setHistorySplitLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state, location.pathname, navigate, applySavedSummary]);
+
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
       const file = acceptedFiles[0]!;
+      setRemoteDocUrl(null);
+      setRemoteFileName(null);
       setPreviewFile(file);
       await upload(file, analysisType);
     },
@@ -46,10 +116,13 @@ export function DocumentUploader() {
     disabled: isUploading || isAnalyzing
   });
 
-  const showSplit = previewFile !== null;
-  const isImage = previewFile?.type.startsWith('image/') ?? false;
-  const isPdf = previewFile?.type === 'application/pdf';
-  const documentFileName = previewFile?.name ?? 'Document';
+  const docDisplayUrl = previewUrl ?? remoteDocUrl;
+  const showSplit = previewFile !== null || remoteDocUrl !== null;
+  const documentFileName = previewFile?.name ?? remoteFileName ?? 'Document';
+  const isImage = previewFile
+    ? previewFile.type.startsWith('image/')
+    : /\.(jpe?g|png)$/i.test(documentFileName);
+  const isPdf = previewFile ? previewFile.type === 'application/pdf' : /\.pdf$/i.test(documentFileName);
 
   const dropzoneClass = `border-2 border-dashed rounded-xl text-center cursor-pointer transition-colors ${
     isDragActive
@@ -117,8 +190,22 @@ export function DocumentUploader() {
     </>
   );
 
+  if (historySplitLoading) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-slate-600">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" strokeWidth={2} aria-hidden />
+        <p className="text-sm font-medium">Opening document…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      {historySplitError && (
+        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-3 text-center text-sm text-red-800">
+          {historySplitError}
+        </div>
+      )}
       {!showSplit ? (
         <div
           className={`flex min-h-0 flex-1 flex-col px-4 py-6 sm:px-8 sm:py-8 ${
@@ -222,7 +309,7 @@ export function DocumentUploader() {
             <h3 className="mb-4 shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Document
             </h3>
-            {previewUrl && (
+            {docDisplayUrl && (
               <div
                 className={`mt-2 flex min-h-0 flex-1 flex-col justify-center overflow-hidden bg-white ${
                   isPdf ? 'px-2 pb-2 pt-0 sm:px-4 sm:pb-3 sm:pt-0' : 'p-2 sm:p-4'
@@ -232,7 +319,7 @@ export function DocumentUploader() {
                   {isImage && (
                     <div className="min-h-0 flex-1 overflow-auto">
                       <img
-                        src={previewUrl}
+                        src={docDisplayUrl}
                         alt="Uploaded document"
                         className="h-full w-full bg-white object-contain object-top p-3 sm:p-6"
                       />
@@ -240,7 +327,21 @@ export function DocumentUploader() {
                   )}
                   {isPdf && (
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                      <PdfDocumentViewer fileUrl={previewUrl} />
+                      <PdfDocumentViewer fileUrl={docDisplayUrl} />
+                    </div>
+                  )}
+                  {!isImage && !isPdf && (
+                    <div className="p-6 text-center text-sm text-slate-500">
+                      Preview is only available for PDF and image files. Use{' '}
+                      <a
+                        href={docDisplayUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-blue-600 hover:underline"
+                      >
+                        open in new tab
+                      </a>
+                      .
                     </div>
                   )}
                 </div>

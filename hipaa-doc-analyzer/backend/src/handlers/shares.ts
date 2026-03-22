@@ -12,11 +12,12 @@ import {
   searchUsersByEmailPrefix
 } from '../services/cognitoUserLookup';
 import { CORS_HEADERS } from '../utils/cors';
+import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
 import { isUuidString } from '../utils/validators';
 
 export const handler: APIGatewayProxyHandler = async (event) => {
   try {
-    const userId = event.requestContext.authorizer?.claims?.sub;
+    const userId = getCognitoSubFromEvent(event);
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }

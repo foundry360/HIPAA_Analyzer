@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, User, X } from 'lucide-react';
+import { FileText, Search, Waypoints, X } from 'lucide-react';
 import { fetchSavedSummaries } from '../../api/savedSummaries';
 import { ANALYSIS_TYPE_LABELS } from '../Upload/AnalysisTypeSelector';
 import type { AnalysisType, HistoryTableRow, SavedSummaryItem, SharedWithMeItem } from '../../types';
 import { pushRecentKey, readRecentKeys } from '../../utils/globalSearchRecent';
-import { mergeHistoryRows, rowKey, rowTimestampMs } from '../../utils/historyRows';
+import {
+  mergeHistoryRows,
+  rowKey,
+  rowTimestampMs,
+  sharedUserIconTitle,
+  showSharedUserIcon
+} from '../../utils/historyRows';
 
 const MS_DAY = 86400000;
 
@@ -102,9 +108,12 @@ function SearchResultRow({
         />
         <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="flex min-w-0 items-center gap-1.5 font-medium text-slate-900">
-            {row.kind === 'shared' && (
-              <span className="inline-flex shrink-0 text-indigo-600" title="Shared with you">
-                <User className="h-4 w-4" strokeWidth={2} aria-hidden />
+            {showSharedUserIcon(row) && (
+              <span
+                className="inline-flex shrink-0 text-blue-500"
+                title={sharedUserIconTitle(row)}
+              >
+                <Waypoints className="h-4 w-4" strokeWidth={2} aria-hidden />
               </span>
             )}
             <span className="min-w-0 truncate">{d.file_name}</span>

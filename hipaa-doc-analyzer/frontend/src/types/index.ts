@@ -67,3 +67,14 @@ export interface SharedWithMeItem {
 export type HistoryTableRow =
   | { kind: 'saved'; data: SavedSummaryItem }
   | { kind: 'shared'; data: SharedWithMeItem };
+
+/** Passed via `navigate('/', { state: { splitFromHistory } })` to open Create Summary split view. */
+export interface SplitFromHistoryState {
+  documentId: string;
+  fileName: string;
+  summary: string;
+  analysisType: string;
+  phiDetected: boolean;
+  entitiesRedacted: number;
+  modelUsed: string;
+}
