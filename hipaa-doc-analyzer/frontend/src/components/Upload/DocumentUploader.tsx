@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Columns2, Download, FileCheck, Loader2, MessageSquare } from 'lucide-react';
+import { Columns2, Download, FileCheck, Loader2, Sparkles } from 'lucide-react';
 import { getDocumentViewUrl } from '../../api/documentViewUrl';
 import { useDocumentUpload } from '../../hooks/useDocumentUpload';
 import { AnalysisTypeSelector } from './AnalysisTypeSelector';
@@ -183,7 +183,7 @@ export function DocumentUploader() {
             aria-label="Open chat about this summary"
             aria-pressed={chatPanelOpen}
           >
-            <MessageSquare className="h-4 w-4" strokeWidth={2} aria-hidden />
+            <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
           <SummaryCardActions
             result={result}
@@ -327,7 +327,7 @@ export function DocumentUploader() {
                       aria-label="Open chat about this summary"
                       aria-pressed={chatPanelOpen}
                     >
-                      <MessageSquare className="h-4 w-4" strokeWidth={2} aria-hidden />
+                      <Sparkles className="h-4 w-4" strokeWidth={2} aria-hidden />
                     </button>
                     <SummaryCardActions
                       result={result}

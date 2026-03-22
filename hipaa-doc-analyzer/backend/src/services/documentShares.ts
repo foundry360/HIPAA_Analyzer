@@ -94,6 +94,20 @@ export async function listSharedWithMe(userId: string): Promise<SharedWithMeRow[
   return result.rows as SharedWithMeRow[];
 }
 
+/** Keep denormalized file_name in sync when the owner renames the document. */
+export async function syncFileNameForDocumentShares(params: {
+  ownerUserId: string;
+  documentId: string;
+  fileName: string;
+}): Promise<void> {
+  const name = params.fileName.replace(/\0/g, '').trim().slice(0, 512);
+  await pool.query(
+    `UPDATE document_shares SET file_name = $3
+     WHERE owner_user_id = $1 AND document_id = $2::uuid`,
+    [params.ownerUserId, params.documentId, name]
+  );
+}
+
 export async function deleteShare(shareId: string, ownerUserId: string): Promise<boolean> {
   const result = await pool.query(
     `DELETE FROM document_shares WHERE id = $1 AND owner_user_id = $2`,

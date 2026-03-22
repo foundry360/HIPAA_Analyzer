@@ -11,7 +11,8 @@ function subFromClaimsObject(claims: unknown): string | undefined {
  * HTTP API (JWT) uses `authorizer.jwt.claims`.
  */
 export function getCognitoSubFromEvent(event: APIGatewayProxyEvent): string | undefined {
-  const auth = event.requestContext.authorizer as Record<string, unknown> | undefined;
+  /** Console tests and some invocations omit `requestContext` (no API Gateway). */
+  const auth = event.requestContext?.authorizer as Record<string, unknown> | undefined;
   if (!auth) return undefined;
 
   const jwt = auth.jwt;

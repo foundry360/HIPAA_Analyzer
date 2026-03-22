@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import type { AnalysisType } from '../types';
+import { syncFileNameForDocumentShares } from './documentShares';
 
 /** Strip NULs (break some PG clients) and trim for display name. */
 export function sanitizeSavedFileName(name: string): string {
@@ -111,7 +112,9 @@ export async function listSavedSummaries(userId: string): Promise<SavedSummaryRo
     result = await pool.query(LIST_SAVED_WITH_SHARES, [userId]);
   } catch (e: unknown) {
     const code = (e as { code?: string })?.code;
-    if (code === '42P01') {
+    /** Table missing (42P01) or no privilege on document_shares (42501) — list without share counts. */
+    if (code === '42P01' || code === '42501') {
+      console.warn('listSavedSummaries: falling back without share counts:', code);
       result = await pool.query(LIST_SAVED_NO_SHARES, [userId]);
     } else {
       throw e;
@@ -123,18 +126,60 @@ export async function listSavedSummaries(userId: string): Promise<SavedSummaryRo
   })) as SavedSummaryRow[];
 }
 
+/**
+ * Renames the stored document object to match the new display name.
+ * Keys are `uploads/{userId}/{documentId}/{fileName}` — DB-only renames break presigned view URLs.
+ * S3 client is loaded only when this runs (dynamic import), so GET /saved-summaries does not require S3.
+ */
 export async function renameSavedSummaryFileName(params: {
   userId: string;
   documentId: string;
   fileName: string;
 }): Promise<boolean> {
+  const newName = sanitizeSavedFileName(params.fileName).slice(0, 512);
+  if (!newName) return false;
+
+  const sel = await pool.query<{ file_name: string }>(
+    `SELECT file_name FROM saved_summaries
+     WHERE user_id = $1 AND document_id = $2::uuid`,
+    [params.userId, params.documentId]
+  );
+  if (sel.rows.length === 0) return false;
+
+  const oldName = sel.rows[0]!.file_name;
+  if (oldName === newName) return true;
+
+  const bucket = process.env.S3_BUCKET_NAME;
+  if (!bucket) {
+    console.error('renameSavedSummaryFileName: S3_BUCKET_NAME not set');
+    return false;
+  }
+
+  const oldKey = `uploads/${params.userId}/${params.documentId}/${oldName}`;
+  const newKey = `uploads/${params.userId}/${params.documentId}/${newName}`;
+
+  const { renameUploadedDocumentObject } = await import('./documentS3Rename');
+  await renameUploadedDocumentObject(bucket, oldKey, newKey);
+
   const result = await pool.query(
     `UPDATE saved_summaries
      SET file_name = $3
      WHERE user_id = $1 AND document_id = $2::uuid`,
-    [params.userId, params.documentId, sanitizeSavedFileName(params.fileName).slice(0, 512)]
+    [params.userId, params.documentId, newName]
   );
-  return (result.rowCount ?? 0) > 0;
+  if ((result.rowCount ?? 0) === 0) return false;
+
+  try {
+    await syncFileNameForDocumentShares({
+      ownerUserId: params.userId,
+      documentId: params.documentId,
+      fileName: newName
+    });
+  } catch (shareSyncErr) {
+    console.error('syncFileNameForDocumentShares after rename:', shareSyncErr);
+  }
+
+  return true;
 }
 
 export async function deleteSavedSummary(userId: string, documentId: string): Promise<boolean> {

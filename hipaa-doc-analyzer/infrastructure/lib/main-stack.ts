@@ -303,9 +303,11 @@ export class MainStack extends cdk.Stack {
     documentBucket.grantReadWrite(getUploadUrlFn);
     documentBucket.grantRead(analyzeDocumentFn);
     documentBucket.grantRead(getDocumentViewUrlFn);
+    documentBucket.grantReadWrite(savedSummariesFn);
     documentKey.grantEncryptDecrypt(getUploadUrlFn);
     documentKey.grantEncryptDecrypt(analyzeDocumentFn);
     documentKey.grantDecrypt(getDocumentViewUrlFn);
+    documentKey.grantEncryptDecrypt(savedSummariesFn);
     tokenMapKey.grantEncryptDecrypt(analyzeDocumentFn);
     database.connections.allowFrom(analyzeDocumentFn, ec2.Port.tcp(5432));
     database.connections.allowFrom(getResultFn, ec2.Port.tcp(5432));

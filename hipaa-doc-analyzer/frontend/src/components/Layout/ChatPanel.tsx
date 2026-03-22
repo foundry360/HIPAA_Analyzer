@@ -1,4 +1,4 @@
-import { MessageSquare, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { useLayout } from '../../context/LayoutContext';
 
 /**
@@ -21,7 +21,7 @@ export function ChatPanel() {
       <div className="flex h-full min-w-0 w-full flex-col">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <MessageSquare
+            <Sparkles
               className="h-5 w-5 shrink-0 text-blue-600"
               strokeWidth={1.75}
               aria-hidden
