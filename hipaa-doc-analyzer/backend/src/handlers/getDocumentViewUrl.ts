@@ -3,6 +3,7 @@ import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { getAnalysisResultForViewer } from '../services/auditLog';
 import { CORS_HEADERS } from '../utils/cors';
+import { getTenantIdFromEvent } from '../utils/tenantContext';
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 const EXPIRY_SECONDS = parseInt(process.env.S3_PRESIGNED_URL_EXPIRY || '900');
@@ -20,6 +21,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    const tenantId = getTenantIdFromEvent(event);
 
     const documentId = event.pathParameters?.documentId;
     const fileName =
@@ -40,7 +42,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       };
     }
 
-    const row = await getAnalysisResultForViewer(documentId, userId);
+    const row = await getAnalysisResultForViewer(documentId, userId, tenantId);
     if (!row) {
       return {
         statusCode: 404,

@@ -13,6 +13,7 @@ import {
 } from '../services/cognitoUserLookup';
 import { CORS_HEADERS } from '../utils/cors';
 import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
+import { getTenantIdFromEvent } from '../utils/tenantContext';
 import { isUuidString } from '../utils/validators';
 
 export const handler: APIGatewayProxyHandler = async (event) => {
@@ -21,12 +22,13 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    const tenantId = getTenantIdFromEvent(event);
 
     const method = event.httpMethod;
     const path = event.path ?? '';
 
     if (method === 'GET' && path.includes('/incoming')) {
-      const rows = await listSharedWithMe(userId);
+      const rows = await listSharedWithMe(userId, tenantId);
       return {
         statusCode: 200,
         headers: CORS_HEADERS,
@@ -62,7 +64,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           body: JSON.stringify({ error: 'Missing or invalid documentId' })
         };
       }
-      const ownerRow = await getAnalysisResult(documentId, userId);
+      const ownerRow = await getAnalysisResult(documentId, userId, tenantId);
       if (!ownerRow) {
         return {
           statusCode: 404,
@@ -70,7 +72,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           body: JSON.stringify({ error: 'Document not found' })
         };
       }
-      const rows = await listSharesForDocument(userId, documentId);
+      const rows = await listSharesForDocument(tenantId, userId, documentId);
       const shares = await Promise.all(
         rows.map(async (s) => {
           let displayEmail = s.shared_with_email?.trim() || null;
@@ -122,7 +124,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         };
       }
 
-      const ownerRow = await getAnalysisResult(documentId, userId);
+      const ownerRow = await getAnalysisResult(documentId, userId, tenantId);
       if (!ownerRow || ownerRow.analysis_status !== 'COMPLETE') {
         return {
           statusCode: 400,
@@ -161,6 +163,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       try {
         const row = await insertDocumentShare({
+          tenantId,
           documentId,
           ownerUserId: userId,
           sharedWithUserId: sub,
@@ -196,7 +199,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           body: JSON.stringify({ error: 'Missing or invalid shareId' })
         };
       }
-      const ok = await deleteShare(shareId, userId);
+      const ok = await deleteShare(tenantId, shareId, userId);
       if (!ok) {
         return {
           statusCode: 404,

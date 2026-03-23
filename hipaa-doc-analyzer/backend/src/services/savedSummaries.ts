@@ -32,6 +32,7 @@ export interface SavedSummaryRow {
 }
 
 export async function upsertSavedSummary(params: {
+  tenantId: string;
   userId: string;
   documentId: string;
   fileName: string;
@@ -43,10 +44,10 @@ export async function upsertSavedSummary(params: {
 }): Promise<void> {
   await pool.query(
     `INSERT INTO saved_summaries (
-      user_id, document_id, file_name, analysis_type, summary,
+      tenant_id, user_id, document_id, file_name, analysis_type, summary,
       phi_detected, entities_redacted, model_used
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    ON CONFLICT (user_id, document_id) DO UPDATE SET
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (tenant_id, user_id, document_id) DO UPDATE SET
       file_name = EXCLUDED.file_name,
       analysis_type = EXCLUDED.analysis_type,
       summary = EXCLUDED.summary,
@@ -55,6 +56,7 @@ export async function upsertSavedSummary(params: {
       model_used = EXCLUDED.model_used,
       saved_at = NOW()`,
     [
+      params.tenantId,
       params.userId,
       params.documentId,
       sanitizeSavedFileName(params.fileName).slice(0, 512),
@@ -82,11 +84,12 @@ const LIST_SAVED_WITH_SHARES = `
   LEFT JOIN (
     SELECT document_id,
            owner_user_id,
+           tenant_id,
            COUNT(*)::int AS share_count
     FROM document_shares
-    GROUP BY document_id, owner_user_id
-  ) cnt ON cnt.document_id = ss.document_id AND cnt.owner_user_id = ss.user_id
-  WHERE ss.user_id = $1
+    GROUP BY document_id, owner_user_id, tenant_id
+  ) cnt ON cnt.document_id = ss.document_id AND cnt.owner_user_id = ss.user_id AND cnt.tenant_id = ss.tenant_id
+  WHERE ss.user_id = $1 AND ss.tenant_id = $2
   ORDER BY ss.saved_at DESC
 `;
 
@@ -102,20 +105,49 @@ const LIST_SAVED_NO_SHARES = `
          ss.saved_at::text,
          0 AS share_count
   FROM saved_summaries ss
+  WHERE ss.user_id = $1 AND ss.tenant_id = $2
+  ORDER BY ss.saved_at DESC
+`;
+
+/** Legacy lists without tenant_id column (pre-migration). */
+const LIST_SAVED_LEGACY = `
+  SELECT ss.id::text,
+         ss.document_id::text,
+         ss.file_name,
+         ss.analysis_type,
+         ss.summary,
+         ss.phi_detected,
+         ss.entities_redacted,
+         ss.model_used,
+         ss.saved_at::text,
+         0 AS share_count
+  FROM saved_summaries ss
   WHERE ss.user_id = $1
   ORDER BY ss.saved_at DESC
 `;
 
-export async function listSavedSummaries(userId: string): Promise<SavedSummaryRow[]> {
+export async function listSavedSummaries(userId: string, tenantId: string): Promise<SavedSummaryRow[]> {
   let result;
   try {
-    result = await pool.query(LIST_SAVED_WITH_SHARES, [userId]);
+    result = await pool.query(LIST_SAVED_WITH_SHARES, [userId, tenantId]);
   } catch (e: unknown) {
     const code = (e as { code?: string })?.code;
-    /** Table missing (42P01) or no privilege on document_shares (42501) — list without share counts. */
-    if (code === '42P01' || code === '42501') {
+    const msg = String((e as { message?: string })?.message ?? '');
+    if (code === '42703' && /tenant_id/i.test(msg)) {
+      result = await pool.query(LIST_SAVED_LEGACY, [userId]);
+    } else if (code === '42P01' || code === '42501') {
       console.warn('listSavedSummaries: falling back without share counts:', code);
-      result = await pool.query(LIST_SAVED_NO_SHARES, [userId]);
+      try {
+        result = await pool.query(LIST_SAVED_NO_SHARES, [userId, tenantId]);
+      } catch (e2: unknown) {
+        const c2 = (e2 as { code?: string })?.code;
+        const m2 = String((e2 as { message?: string })?.message ?? '');
+        if (c2 === '42703' && /tenant_id/i.test(m2)) {
+          result = await pool.query(LIST_SAVED_LEGACY, [userId]);
+        } else {
+          throw e2;
+        }
+      }
     } else {
       throw e;
     }
@@ -132,6 +164,7 @@ export async function listSavedSummaries(userId: string): Promise<SavedSummaryRo
  * S3 client is loaded only when this runs (dynamic import), so GET /saved-summaries does not require S3.
  */
 export async function renameSavedSummaryFileName(params: {
+  tenantId: string;
   userId: string;
   documentId: string;
   fileName: string;
@@ -139,14 +172,22 @@ export async function renameSavedSummaryFileName(params: {
   const newName = sanitizeSavedFileName(params.fileName).slice(0, 512);
   if (!newName) return false;
 
-  const sel = await pool.query<{ file_name: string }>(
+  let oldName: string | undefined;
+  const withTenant = await pool.query<{ file_name: string }>(
     `SELECT file_name FROM saved_summaries
-     WHERE user_id = $1 AND document_id = $2::uuid`,
-    [params.userId, params.documentId]
+     WHERE user_id = $1 AND document_id = $2::uuid AND tenant_id = $3`,
+    [params.userId, params.documentId, params.tenantId]
   );
-  if (sel.rows.length === 0) return false;
-
-  const oldName = sel.rows[0]!.file_name;
+  if (withTenant.rows.length > 0) {
+    oldName = withTenant.rows[0]!.file_name;
+  } else {
+    const legacy = await pool.query<{ file_name: string }>(
+      `SELECT file_name FROM saved_summaries WHERE user_id = $1 AND document_id = $2::uuid`,
+      [params.userId, params.documentId]
+    );
+    if (legacy.rows.length === 0) return false;
+    oldName = legacy.rows[0]!.file_name;
+  }
   if (oldName === newName) return true;
 
   const bucket = process.env.S3_BUCKET_NAME;
@@ -163,14 +204,20 @@ export async function renameSavedSummaryFileName(params: {
 
   const result = await pool.query(
     `UPDATE saved_summaries
-     SET file_name = $3
-     WHERE user_id = $1 AND document_id = $2::uuid`,
-    [params.userId, params.documentId, newName]
+     SET file_name = $4
+     WHERE user_id = $1 AND document_id = $2::uuid AND tenant_id = $3`,
+    [params.userId, params.documentId, params.tenantId, newName]
   );
-  if ((result.rowCount ?? 0) === 0) return false;
+  if ((result.rowCount ?? 0) === 0) {
+    await pool.query(
+      `UPDATE saved_summaries SET file_name = $3 WHERE user_id = $1 AND document_id = $2::uuid`,
+      [params.userId, params.documentId, newName]
+    );
+  }
 
   try {
     await syncFileNameForDocumentShares({
+      tenantId: params.tenantId,
       ownerUserId: params.userId,
       documentId: params.documentId,
       fileName: newName
@@ -182,10 +229,19 @@ export async function renameSavedSummaryFileName(params: {
   return true;
 }
 
-export async function deleteSavedSummary(userId: string, documentId: string): Promise<boolean> {
+export async function deleteSavedSummary(
+  tenantId: string,
+  userId: string,
+  documentId: string
+): Promise<boolean> {
   const result = await pool.query(
+    `DELETE FROM saved_summaries WHERE tenant_id = $1 AND user_id = $2 AND document_id = $3::uuid`,
+    [tenantId, userId, documentId]
+  );
+  if ((result.rowCount ?? 0) > 0) return true;
+  const legacy = await pool.query(
     `DELETE FROM saved_summaries WHERE user_id = $1 AND document_id = $2::uuid`,
     [userId, documentId]
   );
-  return (result.rowCount ?? 0) > 0;
+  return (legacy.rowCount ?? 0) > 0;
 }

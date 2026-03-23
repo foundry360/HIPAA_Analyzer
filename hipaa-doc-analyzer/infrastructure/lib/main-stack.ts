@@ -87,7 +87,11 @@ export class MainStack extends cdk.Stack {
         requireLowercase: true
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      removalPolicy: cdk.RemovalPolicy.RETAIN
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      customAttributes: {
+        /** Multi-tenant scope; UUID string; must match `tenants.id` in Postgres. */
+        tenant_id: new cognito.StringAttribute({ mutable: true, minLen: 36, maxLen: 36 })
+      }
     });
 
     const userPoolClient = userPool.addClient('WebClient', {
@@ -98,7 +102,15 @@ export class MainStack extends cdk.Stack {
       },
       accessTokenValidity: cdk.Duration.hours(1),
       idTokenValidity: cdk.Duration.hours(1),
-      refreshTokenValidity: cdk.Duration.days(1)
+      refreshTokenValidity: cdk.Duration.days(1),
+      readAttributes: new cognito.ClientAttributes()
+        .withStandardAttributes({
+          email: true,
+          emailVerified: true,
+          profilePicture: true,
+          phoneNumber: true
+        })
+        .withCustomAttributes('tenant_id')
     });
 
     // ── RDS PostgreSQL ───────────────────────────────────────────
@@ -166,7 +178,9 @@ export class MainStack extends cdk.Stack {
       DB_NAME: 'hipaa_analyzer',
       DB_USER: 'analyzer_user',
       DB_PASSWORD: dbPassword,
-      COGNITO_USER_POOL_ID: userPool.userPoolId
+      COGNITO_USER_POOL_ID: userPool.userPoolId,
+      /** Default tenant UUID for rows and users without custom:tenant_id (must match DB migration). */
+      DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001'
     };
 
     // ── Lambda Functions (NodejsFunction bundles deps: uuid, pg, aws-sdk) ──

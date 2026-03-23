@@ -3,6 +3,7 @@ import { getAnalysisResultForViewer } from '../services/auditLog';
 import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
 import { isUuidString } from '../utils/validators';
 import { CORS_HEADERS } from '../utils/cors';
+import { getTenantIdFromEvent } from '../utils/tenantContext';
 
 /** Max characters returned for UI demo / sales preview (full text may be larger in DB). */
 const MAX_PREVIEW_CHARS = 16_000;
@@ -21,6 +22,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    const tenantId = getTenantIdFromEvent(event);
 
     const documentId = event.pathParameters?.documentId?.trim() ?? '';
     if (!documentId || !isUuidString(documentId)) {
@@ -31,7 +33,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       };
     }
 
-    const row = await getAnalysisResultForViewer(documentId, userId);
+    const row = await getAnalysisResultForViewer(documentId, userId, tenantId);
     if (!row) {
       return {
         statusCode: 404,

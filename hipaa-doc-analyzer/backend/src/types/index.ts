@@ -50,6 +50,8 @@ export interface AnalyzeWorkerPayload {
   s3Key: string;
   analysisType: AnalysisType;
   userId: string;
+  /** Cognito tenant scope; required for DB writes in worker (no API authorizer). */
+  tenantId: string;
 }
 
 export interface PHIEntity {
@@ -69,6 +71,7 @@ export interface TokenMap {
 }
 
 export interface AuditEntry {
+  tenantId: string;
   documentId: string;
   userId: string;
   action: string;

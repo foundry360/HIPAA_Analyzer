@@ -50,6 +50,12 @@ After deploy, note the outputs: **APIUrl**, **UserPoolId**, **UserPoolClientId**
 aws cloudformation describe-stacks --stack-name HipaaDocAnalyzerStack --query 'Stacks[0].Outputs' --output table
 ```
 
+## 2b. Multi-tenant database migration (existing deployments)
+
+If the stack already existed before multi-tenant support, run **`backend/migrations/002_multi_tenant.sql`** against `hipaa_analyzer` (after backup). It creates `tenants`, adds `tenant_id` columns, and backfills the default tenant UUID `00000000-0000-4000-8000-000000000001`. New installs can rely on **RunDbSetup** alone, which applies the same changes.
+
+After deploy, **Cognito** includes a mutable custom attribute **`custom:tenant_id`** (UUID). Existing users do not have it until you set it (e.g. `aws cognito-idp admin-update-user-attributes` with `custom:tenant_id` = the default tenant UUID). Until then, Lambdas use **`DEFAULT_TENANT_ID`** from the environment for API requests without that claim.
+
 ## 3. Database setup (RunDbSetup — recommended)
 
 Lambdas cannot reach RDS from your laptop; the stack includes **RunDbSetupFn**, which runs in the VPC, creates `hipaa_analyzer` and `analyzer_user`, and applies schema. It uses **the same `DB_PASSWORD`** you passed at CDK deploy time.

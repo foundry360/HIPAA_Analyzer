@@ -16,12 +16,13 @@ const pool = new Pool({
 export async function writeAuditLog(entry: AuditEntry): Promise<void> {
   await pool.query(
     `INSERT INTO audit_log (
-      document_id, user_id, action,
+      tenant_id, document_id, user_id, action,
       phi_entities_detected, phi_types_found,
       model_used, analysis_type, status,
       error_message, duration_ms
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
+      entry.tenantId,
       entry.documentId,
       entry.userId,
       entry.action,
@@ -39,6 +40,7 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
 export async function storeAnalysisResult(
   documentId: string,
   userId: string,
+  tenantId: string,
   analysisType: string,
   summary: string,
   phiDetected: boolean,
@@ -47,11 +49,10 @@ export async function storeAnalysisResult(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO analysis_results (
-      document_id, user_id, analysis_type,
+      tenant_id, document_id, user_id, analysis_type,
       summary, phi_detected, entity_count, model_used, analysis_status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETE')`,
-    [documentId, userId, analysisType,
-      summary, phiDetected, entityCount, modelUsed]
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'COMPLETE')`,
+    [tenantId, documentId, userId, analysisType, summary, phiDetected, entityCount, modelUsed]
   );
 }
 
@@ -59,31 +60,34 @@ export async function storeAnalysisResult(
 export async function createPendingAnalysis(
   documentId: string,
   userId: string,
+  tenantId: string,
   analysisType: AnalysisType
 ): Promise<void> {
   await pool.query(
     `INSERT INTO analysis_results (
-      document_id, user_id, analysis_type,
+      tenant_id, document_id, user_id, analysis_type,
       summary, phi_detected, entity_count, model_used, analysis_status
-    ) VALUES ($1, $2, $3, '', false, 0, NULL, 'PENDING')`,
-    [documentId, userId, analysisType]
+    ) VALUES ($1, $2, $3, $4, '', false, 0, NULL, 'PENDING')`,
+    [tenantId, documentId, userId, analysisType]
   );
 }
 
 export async function setAnalysisProcessing(
   documentId: string,
-  userId: string
+  userId: string,
+  tenantId: string
 ): Promise<void> {
   await pool.query(
     `UPDATE analysis_results SET analysis_status = 'PROCESSING'
-     WHERE document_id = $1 AND user_id = $2`,
-    [documentId, userId]
+     WHERE document_id = $1 AND user_id = $2 AND tenant_id = $3`,
+    [documentId, userId, tenantId]
   );
 }
 
 export async function updateAnalysisComplete(
   documentId: string,
   userId: string,
+  tenantId: string,
   analysisType: string,
   summary: string,
   phiDetected: boolean,
@@ -94,30 +98,30 @@ export async function updateAnalysisComplete(
 ): Promise<void> {
   await pool.query(
     `UPDATE analysis_results SET
-      analysis_type = $3,
-      summary = $4,
-      phi_detected = $5,
-      entity_count = $6,
-      model_used = $7,
-      redacted_document_text = $8,
+      analysis_type = $4,
+      summary = $5,
+      phi_detected = $6,
+      entity_count = $7,
+      model_used = $8,
+      redacted_document_text = $9,
       analysis_status = 'COMPLETE'
-     WHERE document_id = $1 AND user_id = $2`,
-    [documentId, userId, analysisType,
-      summary, phiDetected, entityCount, modelUsed, redactedDocumentText]
+     WHERE document_id = $1 AND user_id = $2 AND tenant_id = $3`,
+    [documentId, userId, tenantId, analysisType, summary, phiDetected, entityCount, modelUsed, redactedDocumentText]
   );
 }
 
 export async function updateAnalysisFailed(
   documentId: string,
   userId: string,
+  tenantId: string,
   message: string
 ): Promise<void> {
   await pool.query(
     `UPDATE analysis_results SET
-      summary = $3,
+      summary = $4,
       analysis_status = 'FAILED'
-     WHERE document_id = $1 AND user_id = $2`,
-    [documentId, userId, message]
+     WHERE document_id = $1 AND user_id = $2 AND tenant_id = $3`,
+    [documentId, userId, tenantId, message]
   );
 }
 
@@ -125,19 +129,20 @@ export async function updateAnalysisFailed(
 export async function resetAnalysisToPending(
   documentId: string,
   userId: string,
+  tenantId: string,
   analysisType: AnalysisType
 ): Promise<void> {
   await pool.query(
     `UPDATE analysis_results SET
-      analysis_type = $3,
+      analysis_type = $4,
       summary = '',
       phi_detected = false,
       entity_count = 0,
       model_used = NULL,
       redacted_document_text = NULL,
       analysis_status = 'PENDING'
-     WHERE document_id = $1 AND user_id = $2`,
-    [documentId, userId, analysisType]
+     WHERE document_id = $1 AND user_id = $2 AND tenant_id = $3`,
+    [documentId, userId, tenantId, analysisType]
   );
 }
 
@@ -158,11 +163,20 @@ function isUndefinedColumnError(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
 }
 
+/** Missing tenant_id column (pre-migration DB). */
+function isTenantColumnError(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  const err = e as { code?: string; message?: string };
+  if (err.code === '42703' && /tenant_id/i.test(String(err.message))) return true;
+  return false;
+}
+
 export async function getAnalysisResult(
   documentId: string,
-  userId: string
+  userId: string,
+  tenantId: string
 ): Promise<AnalysisResultRow | null> {
-  const params = [documentId, userId];
+  const params = [documentId, userId, tenantId];
   try {
     const result = await pool.query(
       `SELECT document_id, user_id, analysis_type, summary,
@@ -170,38 +184,37 @@ export async function getAnalysisResult(
             COALESCE(analysis_status, 'COMPLETE') AS analysis_status,
             redacted_document_text
      FROM analysis_results
-     WHERE document_id = $1 AND user_id = $2`,
+     WHERE document_id = $1 AND user_id = $2 AND tenant_id = $3`,
       params
     );
     if (result.rows.length === 0) return null;
     return result.rows[0] as AnalysisResultRow;
   } catch (e) {
-    if (!isUndefinedColumnError(e)) throw e;
+    if (!isUndefinedColumnError(e) && !isTenantColumnError(e)) throw e;
     const result = await pool.query(
       `SELECT document_id, user_id, analysis_type, summary,
             phi_detected, entity_count, model_used,
             COALESCE(analysis_status, 'COMPLETE') AS analysis_status
      FROM analysis_results
      WHERE document_id = $1 AND user_id = $2`,
-      params
+      [documentId, userId]
     );
     if (result.rows.length === 0) return null;
     return { ...(result.rows[0] as Omit<AnalysisResultRow, 'redacted_document_text'>), redacted_document_text: null };
   }
 }
 
-/** Owner or user named on document_shares for this document. */
+/** Owner or user named on document_shares for this document (same tenant). */
 export async function getAnalysisResultForViewer(
   documentId: string,
-  viewerUserId: string
+  viewerUserId: string,
+  tenantId: string
 ): Promise<AnalysisResultRow | null> {
-  const ownerRow = await getAnalysisResult(documentId, viewerUserId);
+  const ownerRow = await getAnalysisResult(documentId, viewerUserId, tenantId);
   if (ownerRow) return ownerRow;
 
-  // Shared viewers only — must not reference document_shares in the owner query:
-  // if the shares table was never migrated, the owner path would still 500 otherwise.
   try {
-    const params = [documentId, viewerUserId];
+    const params = [documentId, viewerUserId, tenantId];
     try {
       const result = await pool.query(
         `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
@@ -213,13 +226,14 @@ export async function getAnalysisResultForViewer(
          ON ds.document_id = ar.document_id
         AND ds.owner_user_id = ar.user_id
         AND ds.shared_with_user_id = $2
-       WHERE ar.document_id = $1`,
+        AND ds.tenant_id = $3
+       WHERE ar.document_id = $1 AND ar.tenant_id = $3`,
         params
       );
       if (result.rows.length === 0) return null;
       return result.rows[0] as AnalysisResultRow;
     } catch (e) {
-      if (!isUndefinedColumnError(e)) throw e;
+      if (!isUndefinedColumnError(e) && !isTenantColumnError(e)) throw e;
       const result = await pool.query(
         `SELECT ar.document_id, ar.user_id, ar.analysis_type, ar.summary,
               ar.phi_detected, ar.entity_count, ar.model_used,
@@ -230,7 +244,7 @@ export async function getAnalysisResultForViewer(
         AND ds.owner_user_id = ar.user_id
         AND ds.shared_with_user_id = $2
        WHERE ar.document_id = $1`,
-        params
+        [documentId, viewerUserId]
       );
       if (result.rows.length === 0) return null;
       return {

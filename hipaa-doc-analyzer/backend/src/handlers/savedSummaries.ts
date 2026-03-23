@@ -10,6 +10,7 @@ import {
 import { listSharedWithMe, type SharedWithMeRow } from '../services/documentShares';
 import type { AnalysisType } from '../types';
 import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
+import { getTenantIdFromEvent } from '../utils/tenantContext';
 import { isValidAnalysisType, isUuidString } from '../utils/validators';
 import { CORS_HEADERS } from '../utils/cors';
 
@@ -74,13 +75,14 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    const tenantId = getTenantIdFromEvent(event);
 
     const method = event.httpMethod;
     if (method === 'GET') {
-      const items = await listSavedSummaries(userId);
+      const items = await listSavedSummaries(userId, tenantId);
       let sharedWithMe: SharedWithMeRow[] = [];
       try {
-        sharedWithMe = await listSharedWithMe(userId);
+        sharedWithMe = await listSharedWithMe(userId, tenantId);
       } catch (shareErr) {
         // Saved history should still load if shared-with-me fails (e.g. missing migration, bad join).
         console.error('listSharedWithMe failed:', shareErr);
@@ -109,6 +111,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         if (postOp.op === 'rename') {
           try {
             const updated = await renameSavedSummaryFileName({
+              tenantId,
               userId,
               documentId: postOp.documentId,
               fileName: postOp.fileName
@@ -135,7 +138,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
             };
           }
         }
-        const removed = await deleteSavedSummary(userId, postOp.documentId);
+        const removed = await deleteSavedSummary(tenantId, userId, postOp.documentId);
         if (!removed) {
           return {
             statusCode: 404,
@@ -170,7 +173,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
           body: JSON.stringify({ error: 'Invalid request body' })
         };
       }
-      const existing = await getAnalysisResultForViewer(parsed.documentId, userId);
+      const existing = await getAnalysisResultForViewer(parsed.documentId, userId, tenantId);
       if (!existing || existing.analysis_status !== 'COMPLETE') {
         return {
           statusCode: 400,
@@ -181,6 +184,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
         };
       }
       await upsertSavedSummary({
+        tenantId,
         userId,
         documentId: parsed.documentId,
         fileName: parsed.fileName,
@@ -228,6 +232,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       }
       try {
         const updated = await renameSavedSummaryFileName({
+          tenantId,
           userId,
           documentId: pathDocId,
           fileName
@@ -256,7 +261,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     }
 
     if (method === 'DELETE' && pathDocId) {
-      const removed = await deleteSavedSummary(userId, pathDocId);
+      const removed = await deleteSavedSummary(tenantId, userId, pathDocId);
       if (!removed) {
         return {
           statusCode: 404,

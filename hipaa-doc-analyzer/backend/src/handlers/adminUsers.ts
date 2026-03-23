@@ -18,6 +18,7 @@ import {
   resolveSubForGrant,
   revokeDelegatedAdmin
 } from '../services/adminRoles';
+import { DEFAULT_TENANT_ID } from '../utils/tenantContext';
 
 const client = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
 
@@ -258,13 +259,21 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
       const makeAdmin = o.makeAdmin === true;
 
+      const callerClaims = getClaims(event);
+      const tenantForNewUser =
+        typeof callerClaims?.['custom:tenant_id'] === 'string' &&
+        callerClaims['custom:tenant_id'].length >= 36
+          ? callerClaims['custom:tenant_id']
+          : DEFAULT_TENANT_ID;
+
       await client.send(
         new AdminCreateUserCommand({
           UserPoolId: poolId,
           Username: email,
           UserAttributes: [
             { Name: 'email', Value: email },
-            { Name: 'email_verified', Value: 'true' }
+            { Name: 'email_verified', Value: 'true' },
+            { Name: 'custom:tenant_id', Value: tenantForNewUser }
           ],
           DesiredDeliveryMediums: ['EMAIL']
         })

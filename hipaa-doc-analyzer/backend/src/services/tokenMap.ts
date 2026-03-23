@@ -39,7 +39,8 @@ function splitUtf8Buffer(buf: Buffer): Buffer[] {
 export async function storeTokenMap(
   documentId: string,
   tokenMap: TokenMap,
-  entityCount: number
+  entityCount: number,
+  tenantId: string
 ): Promise<void> {
   const plaintext = JSON.stringify(tokenMap);
   const plaintextBuf = Buffer.from(plaintext, 'utf8');
@@ -72,24 +73,63 @@ export async function storeTokenMap(
     storedPayload = JSON.stringify({ v: 2, chunks: ciphertextB64s });
   }
 
-  await pool.query(
-    `INSERT INTO phi_token_maps
-       (document_id, encrypted_map, entity_count)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (document_id) DO UPDATE
-       SET encrypted_map = $2, entity_count = $3`,
-    [documentId, storedPayload, entityCount]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO phi_token_maps
+         (tenant_id, document_id, encrypted_map, entity_count)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (document_id) DO UPDATE
+         SET encrypted_map = EXCLUDED.encrypted_map, entity_count = EXCLUDED.entity_count, tenant_id = EXCLUDED.tenant_id`,
+      [tenantId, documentId, storedPayload, entityCount]
+    );
+  } catch (e: unknown) {
+    const msg = String((e as { message?: string })?.message ?? '');
+    if ((e as { code?: string })?.code === '42703' && /tenant_id/i.test(msg)) {
+      await pool.query(
+        `INSERT INTO phi_token_maps
+           (document_id, encrypted_map, entity_count)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (document_id) DO UPDATE
+           SET encrypted_map = $2, entity_count = $3`,
+        [documentId, storedPayload, entityCount]
+      );
+      return;
+    }
+    throw e;
+  }
 }
 
 export async function retrieveTokenMap(
-  documentId: string
+  documentId: string,
+  tenantId?: string
 ): Promise<TokenMap | null> {
-  const result = await pool.query(
-    `SELECT encrypted_map FROM phi_token_maps
-     WHERE document_id = $1 AND expires_at > NOW()`,
-    [documentId]
-  );
+  let result;
+  if (tenantId) {
+    try {
+      result = await pool.query(
+        `SELECT encrypted_map FROM phi_token_maps
+         WHERE document_id = $1 AND tenant_id = $2 AND expires_at > NOW()`,
+        [documentId, tenantId]
+      );
+    } catch (e: unknown) {
+      const msg = String((e as { message?: string })?.message ?? '');
+      if ((e as { code?: string })?.code === '42703' && /tenant_id/i.test(msg)) {
+        result = await pool.query(
+          `SELECT encrypted_map FROM phi_token_maps
+           WHERE document_id = $1 AND expires_at > NOW()`,
+          [documentId]
+        );
+      } else {
+        throw e;
+      }
+    }
+  } else {
+    result = await pool.query(
+      `SELECT encrypted_map FROM phi_token_maps
+       WHERE document_id = $1 AND expires_at > NOW()`,
+      [documentId]
+    );
+  }
 
   if (result.rows.length === 0) return null;
 

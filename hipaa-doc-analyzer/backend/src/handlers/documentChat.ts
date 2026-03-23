@@ -2,6 +2,7 @@ import { APIGatewayProxyHandler } from 'aws-lambda';
 import { getAnalysisResultForViewer } from '../services/auditLog';
 import { documentChatCompletion } from '../services/bedrock';
 import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
+import { getTenantIdFromEvent } from '../utils/tenantContext';
 import { isUuidString } from '../utils/validators';
 import { CORS_HEADERS } from '../utils/cors';
 
@@ -41,6 +42,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    const tenantId = getTenantIdFromEvent(event);
 
     let body: unknown;
     try {
@@ -64,7 +66,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       };
     }
 
-    const row = await getAnalysisResultForViewer(parsed.documentId, userId);
+    const row = await getAnalysisResultForViewer(parsed.documentId, userId, tenantId);
     if (!row) {
       return {
         statusCode: 404,

@@ -23,6 +23,8 @@ import {
 import { hasRequiredAnalyzeFields, isValidAnalysisType } from '../utils/validators';
 import { userFacingAnalysisError } from '../utils/analysisErrors';
 import { CORS_HEADERS } from '../utils/cors';
+import { getTenantIdFromEvent, DEFAULT_TENANT_ID } from '../utils/tenantContext';
+import { getCognitoSubFromEvent } from '../utils/cognitoClaims';
 
 const lambda = new LambdaClient({ region: process.env.AWS_REGION });
 
@@ -48,7 +50,6 @@ function rowToResponse(row: AnalysisResultRow): AnalyzeResponse {
 }
 
 async function invokeWorker(payload: AnalyzeWorkerPayload): Promise<void> {
-  // Set automatically by Lambda; avoids CDK circular dependency from passing function name via env
   const name = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (!name) throw new Error('AWS_LAMBDA_FUNCTION_NAME is not set');
 
@@ -68,11 +69,12 @@ async function invokeWorker(payload: AnalyzeWorkerPayload): Promise<void> {
 async function runAnalysisPipeline(
   documentId: string,
   userId: string,
+  tenantId: string,
   body: AnalyzeRequest
 ): Promise<void> {
   const startTime = Date.now();
 
-  await setAnalysisProcessing(documentId, userId);
+  await setAnalysisProcessing(documentId, userId, tenantId);
 
   try {
     console.log(`[${documentId}] Extracting text via Textract`);
@@ -97,7 +99,7 @@ async function runAnalysisPipeline(
     );
 
     if (entities.length > 0) {
-      await storeTokenMap(documentId, tokenMap, entities.length);
+      await storeTokenMap(documentId, tokenMap, entities.length, tenantId);
     }
 
     if (!redactedText?.trim() || redactedText.trim().length < 20) {
@@ -119,6 +121,7 @@ async function runAnalysisPipeline(
     await updateAnalysisComplete(
       documentId,
       userId,
+      tenantId,
       body.analysisType,
       summary,
       entities.length > 0,
@@ -128,6 +131,7 @@ async function runAnalysisPipeline(
     );
 
     await writeAuditLog({
+      tenantId,
       documentId,
       userId,
       action: 'DOCUMENT_ANALYSIS',
@@ -145,11 +149,12 @@ async function runAnalysisPipeline(
 
     const safeMessage = userFacingAnalysisError(error);
 
-    await updateAnalysisFailed(documentId, userId, safeMessage).catch(
+    await updateAnalysisFailed(documentId, userId, tenantId, safeMessage).catch(
       console.error
     );
 
     await writeAuditLog({
+      tenantId,
       documentId,
       userId,
       action: 'DOCUMENT_ANALYSIS',
@@ -166,7 +171,11 @@ async function runAnalysisPipeline(
 
 async function handleWorker(payload: AnalyzeWorkerPayload): Promise<void> {
   const { documentId, userId, s3Key, analysisType } = payload;
-  await runAnalysisPipeline(documentId, userId, {
+  const tenantId =
+    typeof payload.tenantId === 'string' && payload.tenantId.length > 0
+      ? payload.tenantId
+      : DEFAULT_TENANT_ID;
+  await runAnalysisPipeline(documentId, userId, tenantId, {
     documentId,
     s3Key,
     analysisType
@@ -174,7 +183,7 @@ async function handleWorker(payload: AnalyzeWorkerPayload): Promise<void> {
 }
 
 async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const userId = event.requestContext.authorizer?.claims?.sub;
+  const userId = getCognitoSubFromEvent(event);
   if (!userId) {
     return {
       statusCode: 401,
@@ -182,6 +191,8 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
       body: JSON.stringify({ error: 'Unauthorized' })
     };
   }
+
+  const tenantId = getTenantIdFromEvent(event);
 
   let body: AnalyzeRequest;
   try {
@@ -208,18 +219,19 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
     };
   }
 
-  const existing = await getAnalysisResult(documentId, userId);
+  const existing = await getAnalysisResult(documentId, userId, tenantId);
 
   if (existing) {
     if (existing.analysis_status === 'COMPLETE') {
       if (shouldForceReanalyze) {
-        await resetAnalysisToPending(documentId, userId, analysisType);
+        await resetAnalysisToPending(documentId, userId, tenantId, analysisType);
         await invokeWorker({
           mode: 'worker',
           documentId,
           s3Key,
           analysisType,
-          userId
+          userId,
+          tenantId
         });
         return {
           statusCode: 202,
@@ -253,13 +265,14 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
       };
     }
     if (existing.analysis_status === 'FAILED') {
-      await resetAnalysisToPending(documentId, userId, analysisType);
+      await resetAnalysisToPending(documentId, userId, tenantId, analysisType);
       await invokeWorker({
         mode: 'worker',
         documentId,
         s3Key,
         analysisType,
-        userId
+        userId,
+        tenantId
       });
       return {
         statusCode: 202,
@@ -274,20 +287,21 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
   }
 
   try {
-    await createPendingAnalysis(documentId, userId, analysisType);
+    await createPendingAnalysis(documentId, userId, tenantId, analysisType);
   } catch (e: unknown) {
     const err = e as { code?: string };
     if (err.code === '23505') {
-      const row = await getAnalysisResult(documentId, userId);
+      const row = await getAnalysisResult(documentId, userId, tenantId);
       if (row?.analysis_status === 'COMPLETE') {
         if (shouldForceReanalyze) {
-          await resetAnalysisToPending(documentId, userId, analysisType);
+          await resetAnalysisToPending(documentId, userId, tenantId, analysisType);
           await invokeWorker({
             mode: 'worker',
             documentId,
             s3Key,
             analysisType,
-            userId
+            userId,
+            tenantId
           });
           return {
             statusCode: 202,
@@ -324,7 +338,8 @@ async function handleApi(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
     documentId,
     s3Key,
     analysisType,
-    userId
+    userId,
+    tenantId
   });
 
   return {
