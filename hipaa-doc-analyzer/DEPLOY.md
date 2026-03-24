@@ -2,6 +2,8 @@
 
 Get the backend from “built” to “callable API” in this order.
 
+**Quick reference (PDF):** `docs/DEPLOY-CHEAT-SHEET.pdf` (source: `docs/DEPLOY-CHEAT-SHEET.md`; regenerate with `python3 docs/generate-cheat-sheet-pdf.py` from `hipaa-doc-analyzer`, requires `fpdf2`).
+
 ## 0. First-time AWS setup (after creating an account)
 
 1. **Install and configure the AWS CLI** so CDK and the app use your account:
@@ -55,6 +57,18 @@ aws cloudformation describe-stacks --stack-name HipaaDocAnalyzerStack --query 'S
 If the stack already existed before multi-tenant support, run **`backend/migrations/002_multi_tenant.sql`** against `hipaa_analyzer` (after backup). It creates `tenants`, adds `tenant_id` columns, and backfills the default tenant UUID `00000000-0000-4000-8000-000000000001`. New installs can rely on **RunDbSetup** alone, which applies the same changes.
 
 After deploy, **Cognito** includes a mutable custom attribute **`custom:tenant_id`** (UUID). Existing users do not have it until you set it (e.g. `aws cognito-idp admin-update-user-attributes` with `custom:tenant_id` = the default tenant UUID). Until then, Lambdas use **`DEFAULT_TENANT_ID`** from the environment for API requests without that claim.
+
+### New tenant + first user (one command)
+
+After deploy, stack output **`TenantBootstrapFunctionName`** names a Lambda that inserts a row into **`tenants`** and creates a Cognito user with **`custom:tenant_id`** set to that new tenant UUID (invite email with temporary password, same as admin “invite user”).
+
+From the **`hipaa-doc-analyzer`** directory:
+
+```bash
+./scripts/bootstrap-tenant.sh "Organization display name" "first.user@example.com"
+```
+
+Optional: `./scripts/bootstrap-tenant.sh "Org" "user@example.com" --no-admin` to skip granting delegated admin (default tries if a **primary** admin exists in `app_config` / deploy env). Requires **jq** and AWS CLI credentials with permission to **invoke** that Lambda.
 
 ## 3. Database setup (RunDbSetup — recommended)
 

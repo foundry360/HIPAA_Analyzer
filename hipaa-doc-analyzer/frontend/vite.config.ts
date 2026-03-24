@@ -29,6 +29,12 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': path.resolve(__dirname, './src') }
     },
-    server: { port: 5173, proxy }
+    server: {
+      port: 5173,
+      strictPort: true,
+      // Listen on all interfaces so http://127.0.0.1:5173 and http://localhost:5173 both work reliably.
+      host: true,
+      proxy
+    }
   };
 });

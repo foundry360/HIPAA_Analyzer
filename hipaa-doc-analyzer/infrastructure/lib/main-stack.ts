@@ -354,6 +354,27 @@ export class MainStack extends cdk.Stack {
     });
     database.connections.allowFrom(dbInspectFn, ec2.Port.tcp(5432));
 
+    /** Insert tenant + create first Cognito user (CLI invoke only; no API Gateway). */
+    const tenantBootstrapFn = new lambdaNode.NodejsFunction(this, 'TenantBootstrapFn', {
+      entry: path.join(backendDir, 'src/handlers/tenantBootstrap.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: {
+        ...lambdaEnv,
+        ADMIN_EMAILS: adminEmails,
+        ADMIN_USERNAMES: adminUsernames,
+        PRIMARY_ADMIN_SUB: primaryAdminSub,
+        PRIMARY_ADMIN_EMAIL: primaryAdminEmail
+      },
+      vpc,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256
+    });
+    database.connections.allowFrom(tenantBootstrapFn, ec2.Port.tcp(5432));
+
     // ── Grant Permissions ────────────────────────────────────────
     documentBucket.grantReadWrite(getUploadUrlFn);
     documentBucket.grantRead(analyzeDocumentFn);
@@ -392,6 +413,14 @@ export class MainStack extends cdk.Stack {
           'cognito-idp:AdminDisableUser',
           'cognito-idp:AdminEnableUser'
         ],
+        resources: [userPool.userPoolArn]
+      })
+    );
+
+    tenantBootstrapFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminGetUser', 'cognito-idp:ListUsers'],
         resources: [userPool.userPoolArn]
       })
     );
@@ -600,6 +629,11 @@ export class MainStack extends cdk.Stack {
       value: dbInspectFn.functionName,
       description:
         'VPC read-only DB helper (CLI invoke only): aws lambda invoke --function-name <value> --cli-binary-format raw-in-base64-out --payload \'{"action":"listAnalysis"}\' out.json'
+    });
+    new cdk.CfnOutput(this, 'TenantBootstrapFunctionName', {
+      value: tenantBootstrapFn.functionName,
+      description:
+        'Create tenant + first user: hipaa-doc-analyzer/scripts/bootstrap-tenant.sh (see DEPLOY.md)'
     });
   }
 }
