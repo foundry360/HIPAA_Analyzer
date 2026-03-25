@@ -1,4 +1,5 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   signIn,
@@ -69,6 +70,7 @@ function LoginLayout({ children }: { children: ReactNode }) {
 }
 
 export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
+  const location = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -84,15 +86,30 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
   const [smsHint, setSmsHint] = useState<string | null>(null);
   const [totpQrUrl, setTotpQrUrl] = useState<string | null>(null);
 
-  const finishSignIn = useCallback(() => {
-    markReturningUser();
-    onSuccess();
+  useEffect(() => {
+    const msg = (location.state as { accessDeniedMessage?: string } | null)?.accessDeniedMessage;
+    if (typeof msg === 'string' && msg.trim()) {
+      setError(msg.trim());
+    }
+  }, [location.state]);
+
+  const finishSignIn = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      markReturningUser();
+      onSuccess();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sign in failed');
+    } finally {
+      setLoading(false);
+    }
   }, [onSuccess]);
 
   const routeSignInOutput = useCallback(
-    (result: SignInOutput) => {
+    async (result: SignInOutput) => {
       if (result.isSignedIn) {
-        finishSignIn();
+        await finishSignIn();
         return;
       }
       const ns = result.nextStep;
@@ -151,8 +168,8 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     setError(null);
     setLoading(true);
     try {
-      const result = await signIn({ username, password });
-      routeSignInOutput(result);
+      const result = await signIn({ username: username.trim(), password });
+      await routeSignInOutput(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed');
     } finally {
@@ -166,7 +183,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     try {
       const result = await confirmSignIn({ challengeResponse: newPassword });
-      routeSignInOutput(result);
+      await routeSignInOutput(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Update password failed');
     } finally {
@@ -180,7 +197,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     try {
       const result = await confirmSignIn({ challengeResponse: mfaCode });
-      routeSignInOutput(result);
+      await routeSignInOutput(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid code');
     } finally {
@@ -193,7 +210,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
     try {
       const result = await confirmSignIn({ challengeResponse: choice });
-      routeSignInOutput(result);
+      await routeSignInOutput(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not continue');
     } finally {

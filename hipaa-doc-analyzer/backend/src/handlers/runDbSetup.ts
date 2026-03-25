@@ -114,6 +114,20 @@ UPDATE phi_token_maps p SET tenant_id = ar.tenant_id FROM analysis_results ar WH
 UPDATE phi_token_maps SET tenant_id = '00000000-0000-4000-8000-000000000001' WHERE tenant_id IS NULL;
 ALTER TABLE phi_token_maps ALTER COLUMN tenant_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_phi_token_maps_tenant ON phi_token_maps (tenant_id);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS ghl_contact_id TEXT;
+CREATE TABLE IF NOT EXISTS billing_period_charges (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id             UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  period_yyyymm         TEXT NOT NULL,
+  amount_usd            NUMERIC(14, 4) NOT NULL,
+  stripe_invoice_id     TEXT,
+  status                TEXT NOT NULL DEFAULT 'invoiced',
+  ghl_synced_at         TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (tenant_id, period_yyyymm)
+);
+CREATE INDEX IF NOT EXISTS idx_billing_period_charges_tenant ON billing_period_charges (tenant_id);
 `;
 
 export const handler = async (): Promise<{ statusCode: number; body: string }> => {

@@ -14,9 +14,11 @@
     "@aws-sdk/client-lambda": "^3.0.0",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/client-secrets-manager": "^3.0.0",
+    "@aws-sdk/client-cost-explorer": "^3.0.0",
     "@aws-sdk/client-textract": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "pg": "^8.11.0",
+    "stripe": "^17.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

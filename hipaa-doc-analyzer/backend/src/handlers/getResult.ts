@@ -11,6 +11,7 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     if (!userId) {
       return { statusCode: 401, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+
     const tenantId = getTenantIdFromEvent(event);
 
     const documentId = event.pathParameters?.documentId ?? event.queryStringParameters?.documentId;

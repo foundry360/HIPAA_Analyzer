@@ -10,6 +10,8 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
 
 const backendDir = path.join(__dirname, '../../backend');
@@ -165,6 +167,13 @@ export class MainStack extends cdk.Stack {
     const primaryAdminEmail =
       process.env.PRIMARY_ADMIN_EMAIL ?? this.node.tryGetContext('primaryAdminEmail') ?? '';
 
+    /** Billing: Stripe + GHL (optional). Set at deploy time; not committed to git. */
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY ?? '';
+    const billingCostTagKey = process.env.BILLING_COST_TAG_KEY ?? 'tenant_id';
+    const ghlApiKey = process.env.GHL_API_KEY ?? '';
+    const ghlLocationId = process.env.GHL_LOCATION_ID ?? '';
+    const ghlFieldAwsUsd = process.env.GHL_CUSTOM_FIELD_ID_AWS_USD ?? '';
+
     // AWS_REGION is set automatically by the Lambda runtime
     const lambdaEnv: Record<string, string> = {
       S3_BUCKET_NAME: documentBucket.bucketName,
@@ -180,7 +189,11 @@ export class MainStack extends cdk.Stack {
       DB_PASSWORD: dbPassword,
       COGNITO_USER_POOL_ID: userPool.userPoolId,
       /** Default tenant UUID for rows and users without custom:tenant_id (must match DB migration). */
-      DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001'
+      DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+      /** GHL: optional billing field sync (set at deploy). */
+      GHL_API_KEY: ghlApiKey,
+      GHL_LOCATION_ID: ghlLocationId,
+      GHL_CUSTOM_FIELD_ID_AWS_USD: ghlFieldAwsUsd
     };
 
     // ── Lambda Functions (NodejsFunction bundles deps: uuid, pg, aws-sdk) ──
@@ -374,6 +387,39 @@ export class MainStack extends cdk.Stack {
       memorySize: 256
     });
     database.connections.allowFrom(tenantBootstrapFn, ec2.Port.tcp(5432));
+
+    /** Monthly: Cost Explorer (tagged cost) → Stripe invoice → GHL contact field → billing_period_charges. */
+    const monthlyBillingFn = new lambdaNode.NodejsFunction(this, 'MonthlyBillingFn', {
+      entry: path.join(backendDir, 'src/handlers/monthlyBilling.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      projectRoot: backendDir,
+      depsLockFilePath: path.join(backendDir, 'package-lock.json'),
+      bundling: nodeBundling,
+      environment: {
+        ...lambdaEnv,
+        STRIPE_SECRET_KEY: stripeSecretKey,
+        BILLING_COST_TAG_KEY: billingCostTagKey
+      },
+      vpc,
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512
+    });
+    database.connections.allowFrom(monthlyBillingFn, ec2.Port.tcp(5432));
+
+    monthlyBillingFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['ce:GetCostAndUsage', 'ce:GetDimensionValues'],
+        resources: ['*']
+      })
+    );
+
+    new events.Rule(this, 'MonthlyBillingSchedule', {
+      description: '1st of month 12:00 UTC — allocated AWS cost billing (see MonthlyBillingFn)',
+      schedule: events.Schedule.expression('cron(0 12 1 * ? *)'),
+      targets: [new targets.LambdaFunction(monthlyBillingFn)]
+    });
 
     // ── Grant Permissions ────────────────────────────────────────
     documentBucket.grantReadWrite(getUploadUrlFn);
@@ -634,6 +680,11 @@ export class MainStack extends cdk.Stack {
       value: tenantBootstrapFn.functionName,
       description:
         'Create tenant + first user: hipaa-doc-analyzer/scripts/bootstrap-tenant.sh (see DEPLOY.md)'
+    });
+    new cdk.CfnOutput(this, 'MonthlyBillingFunctionName', {
+      value: monthlyBillingFn.functionName,
+      description:
+        'Monthly AWS cost → Stripe + GHL (see DEPLOY.md billing section). Manual: aws lambda invoke with optional {"periodYyyymm":"2026-03","dryRun":true}'
     });
   }
 }

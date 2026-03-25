@@ -41,6 +41,8 @@ npx cdk deploy
 - **DB password (required):** Lambdas use `DB_USER=analyzer_user` and `DB_PASSWORD` from CDK. Set **one** of:
   - `export DB_PASSWORD=YOUR_SECURE_PASSWORD` then `cdk deploy` (recommended for `npm run deploy:frontend`), or
   - `cdk deploy -c dbPassword=YOUR_SECURE_PASSWORD`
+- **Secrets keep “vanishing” in Lambda:** Each `cdk deploy` **replaces** the function’s environment from CDK. Values you add only in the AWS Console are **overwritten** on the next deploy. To persist deploy-time settings without re-exporting in the shell, copy `infrastructure/env.deploy.example` to **`infrastructure/.env.deploy`** (gitignored), fill it in, then deploy as usual; CDK loads that file automatically (shell `export` still wins if both are set).
+- **Guard:** `npm run deploy:frontend` and `npm run deploy:stack` run **`scripts/check-deploy-env.mjs`** first. If **`DB_PASSWORD`** is missing, the deploy **aborts** so you don’t ship blank Lambda env again. Fix `.env.deploy` or exports, then redeploy.
 - **Same password everywhere:** The value must match the password RunDbSetup applies to `analyzer_user` in Postgres. If they drift, you get **“Database login failed for analyzer_user”** (HTTP 503 on saved-summaries, etc.). Fix: deploy again with the intended `DB_PASSWORD`, then **invoke RunDbSetup once** (see §3).
 - For production, consider storing the app user password in Secrets Manager and wiring Lambdas to read it at runtime (today the stack passes plain env at deploy time).
 
@@ -148,6 +150,34 @@ cd ../infrastructure && npm run deploy:frontend
 ```
 
 (`deploy:frontend` runs build + `cdk deploy`; `DB_PASSWORD` or `-c dbPassword=...` must still be set as for any CDK deploy.)
+
+## 7. Monthly billing (allocated AWS cost → Stripe + GHL)
+
+Non-PHI only: **Cost Explorer** sums **UnblendedCost** for resources tagged with **`BILLING_COST_TAG_KEY`** (default `tenant_id`) = the tenant’s UUID. Activate that tag as a **cost allocation tag** in AWS Billing, then tag **billable** resources. **Important:** costs appear only for resources that actually carry that tag. Shared Lambdas or a single account split across many tenants **without** per-tenant resource tags will show **$0** in this filter—use **tenant-specific** resources, **separate accounts**, or **custom allocation** (extend `awsCostForTenant.ts` / replace with CUR-based logic) if you need accurate split for shared infrastructure.
+
+**Database:** Run **`backend/migrations/003_billing.sql`** on existing RDS (or rely on **RunDbSetup** for new DBs). For each billable tenant, set:
+
+- `tenants.stripe_customer_id` — Stripe Customer id (`cus_...`) with a default payment method on file.  
+- `tenants.ghl_contact_id` — optional; GoHighLevel contact id for CRM sync.  
+- Create a **custom field** in GHL for the dollar amount and set **`GHL_CUSTOM_FIELD_ID_AWS_USD`** at deploy time (optional).
+
+**Deploy** with environment variables (same shell as `cdk deploy`):
+
+- **`STRIPE_SECRET_KEY`** — required to charge cards.  
+- **`BILLING_COST_TAG_KEY`** — optional; default `tenant_id`.  
+- **`GHL_API_KEY`**, **`GHL_LOCATION_ID`**, **`GHL_CUSTOM_FIELD_ID_AWS_USD`** — optional GHL sync.
+
+Stack output **`MonthlyBillingFunctionName`**: scheduled **1st of each month 12:00 UTC** (EventBridge). It skips tenants without `stripe_customer_id`, skips amounts under **$0.01**, and is **idempotent** per `(tenant_id, period)` in `billing_period_charges`.
+
+**Manual test** (previous calendar month or override):
+
+```bash
+aws lambda invoke --function-name "<MonthlyBillingFunctionName>" --region us-east-1 \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"dryRun":true}' /tmp/bill.json && cat /tmp/bill.json
+```
+
+Use `"periodYyyymm":"2026-03"` to bill a specific month. Remove `dryRun` to create Stripe invoices and update GHL.
 
 ## Notes
 

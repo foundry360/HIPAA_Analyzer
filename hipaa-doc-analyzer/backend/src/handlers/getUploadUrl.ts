@@ -5,7 +5,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { UploadUrlRequest, UploadUrlResponse } from '../types';
 import { hasRequiredUploadUrlFields, isAllowedFileType, isValidAnalysisType } from '../utils/validators';
 import { CORS_HEADERS } from '../utils/cors';
-
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 const EXPIRY_SECONDS = parseInt(process.env.S3_PRESIGNED_URL_EXPIRY || '900');
 

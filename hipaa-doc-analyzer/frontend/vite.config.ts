@@ -31,7 +31,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
-      strictPort: true,
+      /** If 5173 is taken (leftover Vite), use the next free port instead of exiting. */
+      strictPort: false,
       // Listen on all interfaces so http://127.0.0.1:5173 and http://localhost:5173 both work reliably.
       host: true,
       proxy

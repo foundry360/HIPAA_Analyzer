@@ -1,4 +1,5 @@
 import type { APIGatewayProxyEvent } from 'aws-lambda';
+import { getAuthorizerClaims } from './tenantContext';
 
 function subFromClaimsObject(claims: unknown): string | undefined {
   if (!claims || typeof claims !== 'object') return undefined;
@@ -31,4 +32,18 @@ export function getCognitoSubFromEvent(event: APIGatewayProxyEvent): string | un
     }
   }
   return subFromClaimsObject(raw);
+}
+
+/** Email from Cognito ID token (API Gateway authorizer). */
+export function getEmailFromEvent(event: APIGatewayProxyEvent): string | undefined {
+  const c = getAuthorizerClaims(event);
+  const e = c?.email ?? c?.['email'];
+  return typeof e === 'string' && e.includes('@') ? e.trim().toLowerCase() : undefined;
+}
+
+export function getCognitoUsernameFromEvent(event: APIGatewayProxyEvent): string | undefined {
+  const c = getAuthorizerClaims(event);
+  const u =
+    c?.['cognito:username'] ?? c?.username ?? c?.preferred_username ?? c?.['cognito_username'];
+  return typeof u === 'string' ? u : undefined;
 }
